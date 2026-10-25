@@ -1,6 +1,6 @@
 ---
 title: Edge RUM Cordova SDK 1.0.0 — build spec
-status: draft 2026-10-25
+status: approved 2026-10-25
 source: map "Cordova SDK 4.0 — build spec" (NCG-Africa/edge_telemetry_cordova_sdk#1)
 ---
 
@@ -266,22 +266,22 @@ Issues on this repo, labelled `impl`; blocking is native GitHub "blocked by". Ea
 
 | # | Issue | Rules | Blocked by |
 |---|---|---|---|
-| 01 | Plugin scaffold, JS build, CI checks | K1–K7, N4, V1 (JS + fixture jobs), V3 | — |
-| 02 | Android native core: identity, envelope, outbox, sender | A2 (`getState`/`enqueue`/`configure`), W1–W4, T2–T9, R1–R16, Q3 | 01 |
-| 03 | Android session, sampling, caps, consent, user store | A2 rest, E1, E31, S1–S8, P6, P7, C1 | 02 |
-| 04 | Android crash, ANR, hang, exit, breadcrumb mirror | A3, E12, E14–E16, Y3, T4 | 03 |
-| 05 | Android renderer death, app.start, lifecycle, memory, network, deviceready timeout | A5, A7, E2, E3, E13, E17, E22–E24, E26, E32 | 04 |
-| 06 | iOS native core: identity, envelope, outbox, sender | as 02 | 01 |
-| 07 | iOS session, sampling, caps, consent, user store | as 03 | 06 |
-| 08 | iOS crash, hang, breadcrumb mirror | A3, E12, E15, Y3, T4 | 07 |
-| 09 | iOS content-process termination, app.start, lifecycle, memory, network, deviceready timeout | A5–A7, E2, E3, E13, E17, E22–E24, E26, E32 | 08 |
-| 10 | JS core: buffer, hand-off, public API, `beforeSend`, harness | A2, A4, A8, C2–C4, T1, T8, P5, P6, E27–E30, Q1, Q2 | 01 |
-| 11 | JS errors, `app:///` frames, breadcrumbs | E9–E11, A3 (JS side), Y1, Y2 | 10 |
-| 12 | JS network: fetch/XHR, URL scrub, traceparent, resource timing | E6–E8, P1, P3 | 10 |
-| 13 | JS screens and interactions | E4, E5, E25, P2, P4, C5 (unit tests only) | 10 |
-| 14 | JS performance: app.start phases, vitals, frames, bridge timing | A5 (JS side), E3, E18–E21 | 10 |
-| 15 | Contract doc: add `cordova` to R2 | W5 | — |
-| 16 | Example app, device e2e, release checklist | Q4–Q6 | 05, 09, 11–14 |
-| 17 | Docs, CHANGELOG, release workflow, publish 1.0.0 | V2, V4, C5 | 15, 16 |
+| [01](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/19) | Plugin scaffold, JS build, CI checks | K1–K7, N4, V1 (JS + fixture jobs), V3 | — |
+| [02](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/20) | Android native core: identity, envelope, outbox, sender | A2 (`getState`/`enqueue`/`configure`), W1–W4, T2–T9, R1–R16, Q3 | 01 |
+| [03](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/21) | Android session, sampling, caps, consent, user store | A2 rest, E1, E31, S1–S8, P6, P7, C1 | 02 |
+| [04](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/22) | Android crash, ANR, hang, exit, breadcrumb mirror | A3, E12, E14–E16, Y3, T4 | 03 |
+| [05](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/23) | Android renderer death, app.start, lifecycle, memory, network, deviceready timeout | A5, A7, E2, E3, E13, E17, E22–E24, E26, E32 | 04 |
+| [06](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/24) | iOS native core: identity, envelope, outbox, sender | as 02 | 01 |
+| [07](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/25) | iOS session, sampling, caps, consent, user store | as 03 | 06 |
+| [08](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/26) | iOS crash, hang, breadcrumb mirror | A3, E12, E15, Y3, T4 | 07 |
+| [09](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/27) | iOS content-process termination, app.start, lifecycle, memory, network, deviceready timeout | A5–A7, E2, E3, E13, E17, E22–E24, E26, E32 | 08 |
+| [10](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/28) | JS core: buffer, hand-off, public API, `beforeSend`, harness | A2, A4, A8, C2–C4, T1, T8, P5, P6, E27–E30, Q1, Q2 | 01 |
+| [11](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/29) | JS errors, `app:///` frames, breadcrumbs | E9–E11, A3 (JS side), Y1, Y2 | 10 |
+| [12](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/30) | JS network: fetch/XHR, URL scrub, traceparent, resource timing | E6–E8, P1, P3 | 10 |
+| [13](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/31) | JS screens and interactions | E4, E5, E25, P2, P4, C5 (unit tests only) | 10 |
+| [14](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/32) | JS performance: app.start phases, vitals, frames, bridge timing | A5 (JS side), E3, E18–E21 | 10 |
+| [15](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/33) | Contract doc: add `cordova` to R2 | W5 | — |
+| [16](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/34) | Example app, device e2e, release checklist | Q4–Q6 | 05, 09, 11–14 |
+| [17](https://github.com/NCG-Africa/edge_telemetry_cordova_sdk/issues/35) | Docs, CHANGELOG, release workflow, publish 1.0.0 | V2, V4, C5 | 15, 16 |
 
 JS (10–14) builds against the A2 table with the Q2 fake native, so it runs in parallel with both native tracks.
