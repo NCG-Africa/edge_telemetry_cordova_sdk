@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Spec K6: tarball = www/ + types/ + native sources + plugin.xml (+ npm's always-included files).
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const ALLOWED = /^(www\/edge-rum\.js|types\/.+\.d\.ts|android\/src\/main\/.+\.java|ios\/Sources\/.+\.swift|Package\.swift|plugin\.xml|package\.json|README\.md|LICENSE|CHANGELOG\.md)$/;
 const REQUIRED = ['www/edge-rum.js', 'types/index.d.ts', 'plugin.xml', 'Package.swift'];
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const out = JSON.parse(execSync('npm pack --dry-run --json --ignore-scripts', { cwd: root, encoding: 'utf8' }));
 const entry = Array.isArray(out) ? out[0] : Object.values(out)[0];
 const files = entry.files.map((f) => f.path);

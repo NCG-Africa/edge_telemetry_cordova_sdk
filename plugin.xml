@@ -13,9 +13,11 @@
     <engine name="cordova-ios" version=">=8.0.0" />
   </engines>
 
-  <!-- Spec C1: plugin variables, written to config.xml and read natively at launch. -->
-  <preference name="EDGE_RUM_API_KEY" default="" />
-  <preference name="EDGE_RUM_ENDPOINT" default="" />
+  <!-- Spec C1: plugin variables, written to config.xml and read natively at launch.
+       Defaults must be non-empty (cordova treats "" as "no default" and refuses install);
+       native reads "unset" as missing key/endpoint. -->
+  <preference name="EDGE_RUM_API_KEY" default="unset" />
+  <preference name="EDGE_RUM_ENDPOINT" default="unset" />
   <preference name="EDGE_RUM_ENABLED" default="true" />
   <preference name="EDGE_RUM_ANR_ENABLED" default="true" />
   <preference name="EDGE_RUM_ANR_TIMEOUT_MS" default="5000" />

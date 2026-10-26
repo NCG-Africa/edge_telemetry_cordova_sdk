@@ -2,8 +2,9 @@
 // Bundles src/ into the single <js-module> www/edge-rum.js (spec K6, V3).
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const { version } = JSON.parse(readFileSync(root + 'package.json', 'utf8'));
 
 await build({

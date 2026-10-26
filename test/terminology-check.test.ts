@@ -2,9 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const script = new URL('../scripts/terminology-check.mjs', import.meta.url).pathname;
+const script = fileURLToPath(new URL('../scripts/terminology-check.mjs', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'edge-rum-terms-'));
 
 function check(text: string): number | null {
@@ -21,6 +22,10 @@ describe('terminology check (N4)', () => {
   it.each(['telemetry', 'Span', 'traces', 'Tracer', 'metric', 'metrics', 'instrumentation', 'OTel', 'OTLP'])(
     'fails on %s',
     (word) => expect(check(`/** ${word} */`)).toBe(1),
+  );
+
+  it.each(['startTrace()', 'recordMetric', 'EdgeTelemetry', 'SpanKind'])('fails on camelCase identifier %s', (id) =>
+    expect(check(`export declare function ${id}: void;`)).toBe(1),
   );
 
   it('ignores substrings inside identifiers (e.g. repo names)', () => {

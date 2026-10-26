@@ -2,12 +2,9 @@
   "compilerOptions": {
     "target": "ES2017",
     "lib": ["ES2017", "DOM"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
     "strict": true,
     "noEmit": true,
-    "types": [],
-    "paths": { "@nathanclaire/rum-cordova": ["../../types/index.d.ts"] }
+    "types": ["@nathanclaire/rum-cordova"]
   },
   "files": ["consumer.ts"]
 }

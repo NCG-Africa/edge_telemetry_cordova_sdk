@@ -3,9 +3,10 @@
 // Usage: terminology-check.mjs [file...]  (defaults to the shipped consumer surface)
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BANNED = /\b(telemetry|spans?|traces?|tracer|metrics?|instrumentation|otel|otlp)\b/i;
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 
 function consumerSurface() {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -33,7 +34,8 @@ const texts = args.length ? args.map((f) => [f, readFileSync(f, 'utf8')]) : cons
 let violations = 0;
 for (const [file, text] of texts) {
   text.split('\n').forEach((line, i) => {
-    if (BANNED.test(line)) {
+    // Split camelCase so `startTrace` / `EdgeTelemetry` are caught too.
+    if (BANNED.test(line.replace(/([a-z0-9])([A-Z])/g, '$1 $2'))) {
       console.error(`${file}:${i + 1}  ${line.trim()}`);
       violations++;
     }

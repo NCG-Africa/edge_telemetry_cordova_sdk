@@ -14,7 +14,7 @@ case "$platform" in
   *) echo "usage: $0 android|ios [workdir]" >&2; exit 2 ;;
 esac
 
-[ -f "$root/www/edge-rum.js" ] || (cd "$root" && npm run build)
+(cd "$root" && npm run build)
 
 cd "$work"
 rm -rf fixture
@@ -23,7 +23,7 @@ cd fixture
 # Spec K5 floor; cordova-ios 8 defaults apps to 13.0. Consumers set this themselves.
 sed -i.bak 's|</widget>|    <preference name="deployment-target" value="14.0" />\n</widget>|' config.xml
 $cordova platform add "$spec" --no-telemetry
-$cordova plugin add "$root" --variable EDGE_RUM_API_KEY=ci-key --variable EDGE_RUM_ENDPOINT=https://ingest.invalid --no-telemetry
+$cordova plugin add "$root" --no-telemetry
 
 if [ "$platform" = ios ]; then
   $cordova build ios --emulator --no-telemetry -- --buildFlag="CODE_SIGNING_ALLOWED=NO"

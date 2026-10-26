@@ -45,10 +45,11 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check:typings": "tsc -p test/consumer/tsconfig.json",
+    "check:typings": "node scripts/check-typings.mjs",
     "check:terms": "node scripts/terminology-check.mjs",
     "pack-audit": "node scripts/pack-audit.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "version": "node scripts/sync-version.mjs && git add plugin.xml"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
