@@ -32,20 +32,24 @@ enum WebViewHook {
 
 /// Spec A6 fallback, when the hook is off: a page load with no clean shutdown (`pagehide`, sent by
 /// JS as a `markPhase`) since the previous load in this process means the content process died
-/// and Cordova reloaded the page. Worker queue only.
-// ponytail: a reload whose pagehide never reached native reads as a death; inference is the
-// labelled best effort (`webview.detected_by=inference`).
+/// and Cordova reloaded the page. Cordova's recovery reloads the same document, so a load of a
+/// different one (fragment aside) is a navigation, not a death. Worker queue only.
+// ponytail: a same-page reload whose pagehide never reached native still reads as a death;
+// inference is the labelled best effort (`webview.detected_by=inference`).
 struct PageWatch {
-    private var live = false
+    private var page: String?
     private var clean = false
 
-    /// A page finished loading. - Returns: true when the previous page died uncleanly.
-    mutating func loaded() -> Bool {
+    /// A page finished loading at `url`. - Returns: true when the previous page died uncleanly.
+    mutating func loaded(_ url: URL?) -> Bool {
+        var c = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        c?.fragment = nil
+        let doc = c?.string ?? ""
         defer {
-            live = true
+            page = doc
             clean = false
         }
-        return live && !clean
+        return page == doc && !clean
     }
 
     mutating func hidden() {

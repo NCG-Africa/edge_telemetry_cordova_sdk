@@ -8,14 +8,14 @@ final class Launch {
     /// A5: `markReady()` counts when it lands within this long of `deviceready`.
     static let readyWindowMs: Int64 = 30_000
     static let deviceready = "deviceready"
-    static let ready = "markReady"
+    static let markReady = "markReady"
     /// JS phases (A5) → `app.start.*` keys, in launch order.
     private static let phases = [
         ("responseEnd", "app.start.response_end_ms"),
         ("DOMContentLoaded", "app.start.dom_content_loaded_ms"),
         ("load", "app.start.load_ms"),
         (deviceready, "app.start.deviceready_ms"),
-        (ready, "app.start.mark_ready_ms"),
+        (markReady, "app.start.mark_ready_ms"),
     ]
 
     private let processStart: Int64
@@ -34,9 +34,9 @@ final class Launch {
     func mark(_ phase: String, _ ts: Int64) -> [String: Any]? {
         lock.lock(); defer { lock.unlock() }
         guard !emitted, marks[phase] == nil, Self.phases.contains(where: { $0.0 == phase }) else { return nil }
-        if phase == Self.ready, let d = marks[Self.deviceready], ts - d > Self.readyWindowMs { return nil }
+        if phase == Self.markReady, let d = marks[Self.deviceready], ts - d > Self.readyWindowMs { return nil }
         marks[phase] = ts
-        return marks[Self.deviceready] != nil && marks[Self.ready] != nil ? emit() : nil
+        return marks[Self.deviceready] != nil && marks[Self.markReady] != nil ? emit() : nil
     }
 
     var devicereadySeen: Bool {
@@ -53,7 +53,7 @@ final class Launch {
     private func emit() -> [String: Any] {
         emitted = true
         let d = marks[Self.deviceready]!
-        let end = marks[Self.ready].map { max($0, d) } ?? d
+        let end = marks[Self.markReady].map { max($0, d) } ?? d
         var a: [String: Any] = [
             "app.start.type": "cold",
             "app.start.duration_ms": max(0, end - processStart),

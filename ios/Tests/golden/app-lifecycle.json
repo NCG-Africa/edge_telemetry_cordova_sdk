@@ -32,7 +32,7 @@
         "device.dark_mode": false,
         "device.cpu_abi": "arm64",
         "device.cpu_cores": 6,
-        "device.screen_density": 3.0,
+        "device.screen_density": 480,
         "device.screen_width_px": 1290,
         "device.screen_height_px": 2796,
         "display.refresh_rate": 120,

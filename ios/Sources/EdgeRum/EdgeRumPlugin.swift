@@ -4,6 +4,7 @@ import Cordova
 import EdgeRumCrash
 import Network
 import UIKit
+import WebKit
 
 /// Native core entry point (spec A1). Loaded at launch via onload=true.
 @objc(EdgeRumPlugin)
@@ -26,7 +27,7 @@ class EdgeRumPlugin: CDVPlugin {
     private let processStartedAt = EdgeRumPlugin.processStartMs()
     private var launch: Launch!
     /// A6 fallback, when the hook is off. Worker queue only.
-    private var page = PageWatch()
+    private var pageWatch = PageWatch()
     /// E32: launch-time device context; `network.type` is added per event.
     private var device: [String: Any] = [:]
     /// E26: last path transport; nil until the first reading.
@@ -56,12 +57,12 @@ class EdgeRumPlugin: CDVPlugin {
         session = Session(defaults: .standard, health: health, sampleRate: Session.sampleRate(setting("EdgeRumSampleRate")),
                           userId: { user.id })
         consent = Consent(defaults: .standard,
-                          prefEnabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumEnabled", defaultValue: true),
+                          prefEnabled: bool("EdgeRumEnabled", true),
                           session: session, user: user, outbox: outbox, deviceId: deviceId)
         device = Self.deviceContext()
         session.context = { [weak self] in self?.context() ?? [:] }
         crash = Crash(dir: dir)
-        let hangMs = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumHang", defaultValue: true)
+        let hangMs = bool("EdgeRumHang", true)
             ? Int64(setting("EdgeRumHangTimeoutMs") ?? "") ?? 2000 : 0
         watchdog = Watchdog(hangMs: hangMs) { [weak self] ms in
             guard let self else { return }
@@ -70,6 +71,7 @@ class EdgeRumPlugin: CDVPlugin {
             self.worker.async { self.solo(self.crash.hang(durationMs: ms, frames: frames)) }
         }
         foreground = UIApplication.shared.applicationState != .background
+        let launchedForeground = foreground
 
         worker.async {
             // T4: last launch's crash, under the identity it crashed with. Gone either way.
@@ -78,14 +80,15 @@ class EdgeRumPlugin: CDVPlugin {
             // P7: opt-in mode arms nothing until enable().
             guard self.consent.enabled else { return }
             self.append(self.session.begin())
-            self.record(timeout.map { [$0] } ?? [])
+            self.record(Self.list(timeout))
+            if launchedForeground { self.record([Signals.lifecycle("foregrounded", at: Outbox.now())]) } // E2, as Android onStart
             // Armed after the context exists, so a crash always has one to replay under.
             self.saveCrashContext()
             self.arm()
         }
 
         // E23: opt-in periodic memory, foreground only, on the 1 s tick.
-        let memoryEvery = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumMemorySampling", defaultValue: false)
+        let memoryEvery = bool("EdgeRumMemorySampling", false)
             ? max(1, (Int(setting("EdgeRumMemorySamplingIntervalMs") ?? "") ?? 30_000) / 1000) : 0
         // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
         var ticks = 0
@@ -131,17 +134,20 @@ class EdgeRumPlugin: CDVPlugin {
     private func watchWebView() {
         let hooked = WebViewHook.install(NSClassFromString("CDVWebViewEngine"),
                                          cordovaMajor: Int(CORDOVA_VERSION_MIN_REQUIRED) / 10_000,
-                                         enabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumIosWebViewHook",
-                                                                                              defaultValue: true)) { [weak self] in
+                                         enabled: bool("EdgeRumIosWebViewHook", true)) { [weak self] in
             guard let self else { return }
             self.worker.async { self.solo(self.crash.webViewTerminated(detectedBy: "callback")) }
         }
-        guard !hooked else { return }
-        NotificationCenter.default.addObserver(forName: NSNotification.Name("CDVPageDidLoadNotification"), object: webView,
-                                               queue: nil) { [weak self] _ in
-            guard let self else { return }
+        let engine: AnyClass? = NSClassFromString("CDVWebViewEngine")
+        // Main thread (Cordova posts from the navigation delegate).
+        NotificationCenter.default.addObserver(forName: .CDVPageDidLoad, object: nil, queue: nil) { [weak self] note in
+            guard let self, let view = note.object as? WKWebView else { return }
+            // The hook only sees deaths while the engine is still the delegate; a host VC or
+            // another plugin can take that over (CDVWebViewEngine.m `updateWithInfo:`).
+            if hooked, let engine, (view.navigationDelegate as AnyObject?)?.isKind(of: engine) == true { return }
+            let url = view.url
             self.worker.async {
-                if self.page.loaded() { self.solo(self.crash.webViewTerminated(detectedBy: "inference")) }
+                if self.pageWatch.loaded(url) { self.solo(self.crash.webViewTerminated(detectedBy: "inference")) }
             }
         }
     }
@@ -150,15 +156,15 @@ class EdgeRumPlugin: CDVPlugin {
     private func watchNetwork() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
-            guard path.status == .satisfied else { self?.network("none"); return }
-            self?.network(path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular"
+            guard path.status == .satisfied else { self?.networkChanged("none"); return }
+            self?.networkChanged(path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular"
                           : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other")
         }
         monitor.start(queue: DispatchQueue(label: "com.nathanclaire.rum.network"))
         pathMonitor = monitor
     }
 
-    private func network(_ type: String) {
+    private func networkChanged(_ type: String) {
         networkLock.lock()
         let previous = networkType
         networkType = type
@@ -201,7 +207,7 @@ class EdgeRumPlugin: CDVPlugin {
             "device.dark_mode": UITraitCollection.current.userInterfaceStyle == .dark,
             "device.cpu_abi": abi,
             "device.cpu_cores": ProcessInfo.processInfo.activeProcessorCount,
-            "device.screen_density": Double(screen.scale),
+            "device.screen_density": Int(screen.scale * 160), // dpi, as Android densityDpi (1x = 160)
             "device.screen_width_px": Int(screen.nativeBounds.width),
             "device.screen_height_px": Int(screen.nativeBounds.height),
             "display.refresh_rate": screen.maximumFramesPerSecond,
@@ -231,9 +237,20 @@ class EdgeRumPlugin: CDVPlugin {
                                      at: Outbox.now()))
     }
 
+    /// E22: a new session gets its memory bookend, in the same segment (before any background seal).
+    /// Worker queue only.
+    // ponytail: substring check on serialized lines; Session returns strings, not events.
+    private func sampleIfStarted(_ lines: [String]) {
+        if lines.contains(where: { $0.contains(#""eventName":"session.started""#) }) { sampleMemory("session_start") }
+    }
+
+    private static func list(_ e: [String: Any]?) -> [[String: Any]] {
+        e.map { [$0] } ?? []
+    }
+
     /// Worker queue only: `app.start` without `markReady`, if still owed.
     private func finishLaunch() {
-        record(launch.finish().map { [$0] } ?? [])
+        record(Self.list(launch.finish()))
     }
 
     /// A5: JS phase marks; `deviceready` opens the `markReady` window. A6: `pagehide` is the clean
@@ -244,7 +261,7 @@ class EdgeRumPlugin: CDVPlugin {
         worker.async {
             defer { self.ok(command) }
             guard let phase = opts?["phase"] as? String else { return }
-            if phase == "pagehide" { return self.page.hidden() }
+            if phase == "pagehide" { return self.pageWatch.hidden() }
             let ts = (opts?["ts"] as? NSNumber)?.int64Value ?? Outbox.now()
             if let start = self.launch.mark(phase, ts) {
                 self.record([start])
@@ -270,6 +287,10 @@ class EdgeRumPlugin: CDVPlugin {
         commandDelegate.settings.cordovaSetting(forKey: name) as? String
     }
 
+    private func bool(_ name: String, _ fallback: Bool) -> Bool {
+        commandDelegate.settings.cordovaBoolSetting(forKey: name, defaultValue: fallback)
+    }
+
     /// C1 plugin variable; the plugin.xml placeholder `unset` means missing (blank is handled by Sender).
     private func pref(_ name: String) -> String? {
         let v = setting(name)
@@ -291,7 +312,9 @@ class EdgeRumPlugin: CDVPlugin {
     private func solo(_ event: [String: Any]) {
         guard consent.enabled else { return }
         let before = session.id
-        for line in session.admit([event]) { writeSolo(identity, line) }
+        let lines = session.admit([event])
+        for line in lines { writeSolo(identity, line) }
+        sampleIfStarted(lines)
         if before != nil && before != session.id { notify("session") }
     }
 
@@ -422,13 +445,9 @@ class EdgeRumPlugin: CDVPlugin {
     @discardableResult
     private func append(_ lines: [String]) -> Bool {
         guard !lines.isEmpty else { return true }
-        // E22: a new session gets its memory bookend.
-        // ponytail: substring check on serialized lines; Session returns strings, not events.
-        if lines.contains(where: { $0.contains(#""eventName":"session.started""#) }) {
-            worker.async { self.sampleMemory("session_start") }
-        }
         do {
             try outbox.append(identity, lines)
+            sampleIfStarted(lines)
             sender.trigger()
             return true
         } catch {

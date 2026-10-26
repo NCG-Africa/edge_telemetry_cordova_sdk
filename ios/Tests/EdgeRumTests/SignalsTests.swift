@@ -119,7 +119,7 @@ final class SignalsTests: XCTestCase {
         "device.dark_mode": false,
         "device.cpu_abi": "arm64",
         "device.cpu_cores": 6,
-        "device.screen_density": 3.0,
+        "device.screen_density": 480,
         "device.screen_width_px": 1290,
         "device.screen_height_px": 2796,
         "display.refresh_rate": 120,
@@ -167,10 +167,13 @@ final class SignalsTests: XCTestCase {
 
     func testInferenceFlagsAPageLoadWithoutCleanShutdown() {
         var page = PageWatch()
-        XCTAssertFalse(page.loaded(), "first page of the process")
+        let index = URL(string: "https://localhost/index.html#/cart")
+        XCTAssertFalse(page.loaded(index), "first page of the process")
         page.hidden()
-        XCTAssertFalse(page.loaded(), "navigated away cleanly")
-        XCTAssertTrue(page.loaded(), "reloaded with no pagehide: the content process died")
+        XCTAssertFalse(page.loaded(index), "reloaded cleanly")
+        XCTAssertTrue(page.loaded(URL(string: "https://localhost/index.html#/home")),
+                      "same document again, no pagehide: the content process died")
+        XCTAssertFalse(page.loaded(URL(string: "https://localhost/other.html")), "another document: a navigation")
     }
 
     func testWebViewTerminatedGoldenBatch() throws {
