@@ -1,16 +1,25 @@
 package com.nathanclaire.rum.cordova;
 
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebView;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -20,6 +29,10 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Scanner;
+import java.util.TimeZone;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -54,9 +67,22 @@ public class EdgeRumPlugin extends CordovaPlugin {
     private String sdkVersion;
     private final long processStartedAt =
             System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime());
+    /** A5: one per process, so an Activity recreated in a live process doesn't start a second cold launch. */
+    private static Launch launch;
+    /** E32: launch-time device context; `network.type` is added per event. */
+    private JSONObject device;
+    private String[] deviceKeys;
+    /** E26: last default-network transport; null until the first callback. */
+    private volatile String networkType;
+    private ComponentCallbacks2 trimCallback;
+    private ConnectivityManager.NetworkCallback networkCallback;
 
     @Override
     protected void pluginInitialize() {
+        // A5: plugins load once the WebView exists; close enough to "WebView created".
+        synchronized (EdgeRumPlugin.class) {
+            if (launch == null) launch = new Launch(processStartedAt, System.currentTimeMillis());
+        }
         Context ctx = cordova.getContext();
         File dir = new File(ctx.getFilesDir(), "edge_rum");
         Health health = new Health(dir);
@@ -77,6 +103,9 @@ public class EdgeRumPlugin extends CordovaPlugin {
         session = new Session(prefs, health, System::currentTimeMillis, sampleRate(), random::nextDouble,
                 IdGenerator::sessionId, user::id);
         consent = new Consent(prefs, preferences.getBoolean("EdgeRumEnabled", true), session, user, outbox, ids);
+        device = deviceContext(ctx);
+        deviceKeys = names(device);
+        session.context(this::context);
 
         crash = new Crash(dir, Looper.getMainLooper().getThread(), System::currentTimeMillis);
         Handler main = new Handler(Looper.getMainLooper());
@@ -93,10 +122,12 @@ public class EdgeRumPlugin extends CordovaPlugin {
             Crash.Pending ndk = crash.takeNdk();
             if (ndk != null && consent.enabled()) writeSolo(ndk.identity, ndk.event);
             List<JSONObject> exits = harvestExits(ctx);
+            JSONObject timeout = Launch.takeTimeout(prefs);
             // P7: opt-in mode arms nothing until enable().
             if (!consent.enabled()) return;
             append(session.begin());
             admit(exits);
+            record(list(timeout));
             // Armed after the context exists, so an NDK crash always has one to replay under.
             saveCrashContext();
             arm();
@@ -105,7 +136,208 @@ public class EdgeRumPlugin extends CordovaPlugin {
         worker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
         // T6: 30 s retry tick for parked segments.
         worker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
+        // A7: no deviceready by the timeout → marker for next launch. Backgrounded on the splash
+        // screen (WebView paused) isn't a timeout.
+        int readyTimeoutMs = preferences.getInteger("EdgeRumDevicereadyTimeoutMs", 10000);
+        worker.schedule(() -> {
+            if (consent.enabled() && foreground && !launch.devicereadySeen()) {
+                Launch.timedOut(prefs, readyTimeoutMs, System.currentTimeMillis());
+            }
+        }, readyTimeoutMs, TimeUnit.MILLISECONDS);
+        // E23: opt-in periodic memory, foreground only.
+        if (preferences.getBoolean("EdgeRumMemorySampling", false)) {
+            long every = Math.max(1000, preferences.getInteger("EdgeRumMemorySamplingIntervalMs", 30000));
+            worker.scheduleWithFixedDelay(() -> {
+                if (foreground) sampleMemory("periodic");
+            }, every, every, TimeUnit.MILLISECONDS);
+        }
+        watchMemoryPressure(ctx);
+        watchNetwork(ctx);
         sender.trigger();
+    }
+
+    /** E24: `onTrimMemory` / `onLowMemory` → `memory_pressure`. */
+    private void watchMemoryPressure(Context ctx) {
+        trimCallback = new ComponentCallbacks2() {
+            @Override public void onTrimMemory(int level) {
+                long at = System.currentTimeMillis();
+                capture(true, () -> list(Signals.pressure(level, rssKb(), at)));
+            }
+
+            @Override public void onLowMemory() {
+                onTrimMemory(TRIM_MEMORY_COMPLETE);
+            }
+
+            @Override public void onConfigurationChanged(Configuration c) {
+            }
+        };
+        ctx.getApplicationContext().registerComponentCallbacks(trimCallback);
+    }
+
+    /** E26: default-network transport changes → `network_change`; the first reading only seeds `network.type`. */
+    private void watchNetwork(Context ctx) {
+        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
+            @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) {
+                network(c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? "wifi"
+                        : c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? "cellular"
+                        : c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? "ethernet" : "other");
+            }
+
+            @Override public void onLost(Network n) {
+                network("none");
+            }
+        };
+        try {
+            // No network now → "none", so the first one that comes is a reported transition.
+            if (cm.getActiveNetwork() == null) networkType = "none";
+            cm.registerDefaultNetworkCallback(cb);
+            networkCallback = cb;
+        } catch (RuntimeException e) {
+            // Missing permission (stripped manifest) or the per-app callback limit: no network_change.
+            LOG.w(TAG, "network callback unavailable", e);
+        }
+    }
+
+    private synchronized void network(String type) {
+        String previous = networkType;
+        if (type.equals(previous)) return;
+        networkType = type;
+        long at = System.currentTimeMillis();
+        if (previous != null) capture(true, () -> list(Signals.network(previous, type, at)));
+    }
+
+    /** E32: device context plus the current `network.type`, stamped by the session gate. */
+    private JSONObject context() {
+        try {
+            JSONObject c = new JSONObject(device, deviceKeys);
+            String n = networkType;
+            return n == null ? c : c.put("network.type", n);
+        } catch (JSONException e) {
+            return new JSONObject();
+        }
+    }
+
+    private static JSONObject deviceContext(Context ctx) {
+        DisplayMetrics m = ctx.getResources().getDisplayMetrics();
+        ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+        int night = ctx.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        try {
+            return new JSONObject()
+                    .put("device.platform", "android")
+                    .put("device.platform_version", Build.VERSION.RELEASE)
+                    .put("device.model", Build.MODEL)
+                    .put("device.manufacturer", Build.MANUFACTURER)
+                    .put("device.brand", Build.BRAND)
+                    .put("device.android_sdk", String.valueOf(Build.VERSION.SDK_INT))
+                    .put("device.android_release", Build.VERSION.RELEASE)
+                    .put("device.hardware", Build.HARDWARE)
+                    .put("device.product", Build.PRODUCT)
+                    .put("device.locale", Locale.getDefault().toLanguageTag())
+                    .put("device.timezone", TimeZone.getDefault().getID())
+                    .put("device.low_ram", am != null && am.isLowRamDevice())
+                    .put("device.dark_mode", night == Configuration.UI_MODE_NIGHT_YES)
+                    .put("device.cpu_abi", Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : null)
+                    .put("device.cpu_cores", Runtime.getRuntime().availableProcessors())
+                    .put("device.screen_density", m.densityDpi)
+                    .put("device.screen_width_px", m.widthPixels)
+                    .put("device.screen_height_px", m.heightPixels);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String[] names(JSONObject o) {
+        JSONArray keys = o.names();
+        String[] out = new String[keys == null ? 0 : keys.length()];
+        for (int i = 0; i < out.length; i++) out[i] = keys.optString(i);
+        return out;
+    }
+
+    interface NativeRecords {
+        List<JSONObject> build() throws JSONException;
+    }
+
+    /**
+     * Native signals from any thread: built there (timestamps), gated and appended on the worker.
+     * `passive` ones (background network / memory) don't count as session activity.
+     */
+    private void capture(boolean passive, NativeRecords records) {
+        try {
+            worker.execute(() -> {
+                try {
+                    List<JSONObject> events = records.build();
+                    if (passive) recordPassive(events);
+                    else record(events);
+                } catch (JSONException e) {
+                    LOG.w(TAG, "native record failed", e);
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // shutting down
+        }
+    }
+
+    /** Worker only: consent (P7), then the session gate. */
+    private void record(List<JSONObject> events) {
+        if (!events.isEmpty() && consent.enabled()) admit(events);
+    }
+
+    private void recordPassive(List<JSONObject> events) {
+        if (events.isEmpty() || !consent.enabled()) return;
+        append(session.admitPassive(events));
+    }
+
+    private static List<JSONObject> list(JSONObject e) {
+        return e == null ? Collections.<JSONObject>emptyList() : Collections.singletonList(e);
+    }
+
+    /** E22 / E23: RSS + PSS, worker only (`getPss` walks smaps). */
+    private void sampleMemory(String source) {
+        try {
+            recordPassive(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis()));
+        } catch (JSONException | RuntimeException e) {
+            LOG.w(TAG, "memory sample failed", e);
+        }
+    }
+
+    private static long rssKb() {
+        try (Scanner in = new Scanner(new File("/proc/self/status"), "UTF-8").useDelimiter("\\A")) {
+            return Signals.rssKb(in.hasNext() ? in.next() : "");
+        } catch (IOException | RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** A5: JS phase marks; `deviceready` opens the `markReady` window. */
+    private void markPhase(JSONObject opts) {
+        if (opts == null) return;
+        String phase = opts.optString("phase", null);
+        try {
+            JSONObject start = launch.mark(phase, opts.optLong("ts", System.currentTimeMillis()));
+            if (start != null) record(list(start));
+            else if (Launch.DEVICEREADY.equals(phase)) {
+                worker.schedule(this::finishLaunch, Launch.READY_WINDOW_MS, TimeUnit.MILLISECONDS);
+            }
+        } catch (JSONException e) {
+            LOG.w(TAG, "app.start failed", e);
+        }
+    }
+
+    /** Worker only: `app.start` without `markReady`, if still owed. */
+    private void finishLaunch() {
+        try {
+            record(list(launch.finish()));
+        } catch (JSONException e) {
+            LOG.w(TAG, "app.start failed", e);
+        }
+    }
+
+    /** E13: recorded synchronously before the WebView goes; the default (crash / kill) still follows. */
+    @Override
+    public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+        solo(() -> crash.webViewTerminated(detail.didCrash() ? "crash" : "oom_killed"));
+        return false;
     }
 
     /** E12, E14, E15: crash handlers once per process; the watchdog while in the foreground. */
@@ -284,6 +516,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
             case "reset":
                 worker.execute(() -> reset(cb));
                 return true;
+            case "markPhase":
+                worker.execute(() -> markPhase(opts));
+                cb.success();
+                return true;
             default:
                 return false;
         }
@@ -347,6 +583,17 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     private boolean append(List<String> lines) {
         if (lines.isEmpty()) return true;
+        // E22: a new session gets its memory bookend.
+        // ponytail: substring check on serialized lines; Session returns strings, not events.
+        for (String line : lines) {
+            if (!line.contains("\"eventName\":\"session.started\"")) continue;
+            try {
+                worker.execute(() -> sampleMemory("session_start"));
+            } catch (RejectedExecutionException ignored) {
+                // shutting down
+            }
+            break;
+        }
         try {
             outbox.append(identity, lines);
             sender.trigger();
@@ -405,8 +652,27 @@ public class EdgeRumPlugin extends CordovaPlugin {
         flush();
     }
 
+    /** E2: native foreground. */
+    @Override
+    public void onStart() {
+        if (worker == null) return;
+        long at = System.currentTimeMillis();
+        capture(false, () -> list(Signals.lifecycle("foregrounded", at)));
+    }
+
+    /**
+     * E2 background; E22 end bookend — every background may be the session's last (it ends
+     * after the idle timeout, unobserved), so each one samples; A5: an owed `app.start` goes now.
+     */
     @Override
     public void onStop() {
+        if (worker == null) return;
+        long at = System.currentTimeMillis();
+        capture(false, () -> list(Signals.lifecycle("backgrounded", at)));
+        worker.execute(() -> {
+            finishLaunch();
+            sampleMemory("session_end");
+        });
         flush();
     }
 
@@ -429,6 +695,11 @@ public class EdgeRumPlugin extends CordovaPlugin {
     @Override
     public void onDestroy() {
         if (watchdog != null) watchdog.stop();
+        Context ctx = cordova.getContext();
+        if (trimCallback != null) ctx.getApplicationContext().unregisterComponentCallbacks(trimCallback);
+        if (networkCallback != null) {
+            ((ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(networkCallback);
+        }
         if (worker != null) worker.shutdownNow();
         if (sender != null) sender.shutdown();
     }

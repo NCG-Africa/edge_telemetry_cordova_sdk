@@ -52,6 +52,9 @@ final class Session {
     private final Supplier<String> newId;
     private final Supplier<String> userId;
 
+    /** E32: device / network context stamped on every event; an event's own key wins. */
+    private Supplier<JSONObject> context = JSONObject::new;
+
     private String id;
     private long startedAt;
     private long lastActivityAt;
@@ -72,6 +75,10 @@ final class Session {
         this.roll = roll;
         this.newId = newId;
         this.userId = userId;
+    }
+
+    synchronized void context(Supplier<JSONObject> context) {
+        this.context = context;
     }
 
     synchronized String id() {
@@ -121,6 +128,25 @@ final class Session {
     synchronized List<String> admit(List<JSONObject> events) {
         if (id == null) return Collections.emptyList();
         List<String> out = rotateIfIdle();
+        gate(events, out);
+        lastActivityAt = clock.getAsLong();
+        persist();
+        return out;
+    }
+
+    /**
+     * The gate for native signals that arrive in the background (network, memory): never rotate
+     * and don't count as activity, so they can't keep an idle session alive (E1).
+     */
+    synchronized List<String> admitPassive(List<JSONObject> events) {
+        if (id == null) return Collections.emptyList();
+        List<String> out = new ArrayList<>();
+        gate(events, out);
+        persist();
+        return out;
+    }
+
+    private void gate(List<JSONObject> events, List<String> out) {
         for (JSONObject e : events) {
             JSONObject attrs = e.optJSONObject("attributes");
             if (attrs == null) attrs = new JSONObject();
@@ -142,9 +168,6 @@ final class Session {
             }
             out.add(e.toString());
         }
-        lastActivityAt = clock.getAsLong();
-        persist();
-        return out;
     }
 
     private void count(boolean metric, String name, JSONObject attrs) {
@@ -200,6 +223,12 @@ final class Session {
     }
 
     private JSONObject stamp(JSONObject attrs, String sessionId) throws JSONException {
+        JSONObject ctx = context.get();
+        JSONArray keys = ctx.names();
+        for (int i = 0; keys != null && i < keys.length(); i++) {
+            String k = keys.getString(i);
+            if (!attrs.has(k)) attrs.put(k, ctx.get(k));
+        }
         attrs.put("session.id", sessionId);
         String user = userId.get();
         if (user != null) attrs.put("user.id", user);

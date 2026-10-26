@@ -59,6 +59,10 @@
         <param name="onload" value="true" />
       </feature>
     </config-file>
+    <!-- Spec E26: default-network callback. -->
+    <config-file target="AndroidManifest.xml" parent="/manifest">
+      <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    </config-file>
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/EdgeRumPlugin.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Exits.java"
@@ -71,11 +75,15 @@
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/IdGenerator.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Launch.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Outbox.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Sender.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Session.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Signals.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/User.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />

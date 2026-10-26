@@ -1,0 +1,46 @@
+{
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.0.0",
+  "batch_size": 2,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "type": "telemetry_batch",
+  "events": [
+    {
+      "metricName": "memory_usage",
+      "attributes": {
+        "memory.source": "session_start",
+        "memory.type": "rss",
+        "metric.unit": "MB",
+        "memory.usage_mb": 183,
+        "session.id": "session_1"
+      },
+      "type": "metric",
+      "value": 183,
+      "timestamp": "2026-10-26T10:00:02.000Z"
+    },
+    {
+      "metricName": "memory_usage",
+      "attributes": {
+        "memory.source": "session_start",
+        "memory.type": "pss",
+        "metric.unit": "MB",
+        "memory.usage_mb": 140,
+        "session.id": "session_1"
+      },
+      "type": "metric",
+      "value": 140,
+      "timestamp": "2026-10-26T10:00:02.000Z"
+    }
+  ],
+  "timestamp": "2026-10-26T10:00:02.000Z"
+}

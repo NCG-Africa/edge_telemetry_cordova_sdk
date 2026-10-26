@@ -1,0 +1,47 @@
+{
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.0.0",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "type": "telemetry_batch",
+  "events": [
+    {
+      "eventName": "app_lifecycle",
+      "attributes": {
+        "device.platform": "android",
+        "lifecycle.state": "backgrounded",
+        "device.brand": "google",
+        "device.locale": "en-KE",
+        "device.hardware": "tokay",
+        "device.screen_width_px": 1080,
+        "device.manufacturer": "Google",
+        "device.screen_density": 420,
+        "device.platform_version": "16",
+        "device.model": "Pixel 9",
+        "device.android_sdk": "36",
+        "device.screen_height_px": 2424,
+        "device.product": "tokay",
+        "device.android_release": "16",
+        "device.timezone": "Africa\/Nairobi",
+        "device.cpu_abi": "arm64-v8a",
+        "device.low_ram": false,
+        "device.cpu_cores": 8,
+        "network.type": "wifi",
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
+    }
+  ],
+  "timestamp": "2026-10-26T10:00:02.000Z"
+}

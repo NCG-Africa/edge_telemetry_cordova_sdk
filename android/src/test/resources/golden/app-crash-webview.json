@@ -1,0 +1,38 @@
+{
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.0.0",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "type": "telemetry_batch",
+  "events": [
+    {
+      "eventName": "app.crash",
+      "attributes": {
+        "is_fatal": true,
+        "user.id": "u1",
+        "webview.detected_by": "callback",
+        "cause": "WebViewTerminated",
+        "message": "WebView renderer process gone (crash)",
+        "screen_name": "\/checkout",
+        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
+        "handled": false,
+        "exception_type": "WebViewTerminated",
+        "webview.reason": "crash",
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
+    }
+  ],
+  "timestamp": "2026-10-26T10:00:03.000Z"
+}

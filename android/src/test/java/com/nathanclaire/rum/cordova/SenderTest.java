@@ -72,6 +72,25 @@ public class SenderTest {
         }
     }
 
+    /** Seals `lines` under {@link #IDENTITY}, sends them, and checks the request against golden `name`. */
+    static void assertGoldenBatch(String name, File dir, Health health, long now, List<String> lines)
+            throws Exception {
+        Outbox outbox = new Outbox(dir, () -> now, health);
+        outbox.append(IDENTITY, lines);
+        outbox.seal();
+        MockWebServer server = new MockWebServer();
+        server.start();
+        try {
+            Sender sender = new Sender(outbox, health, "1.0.0", () -> now, ms -> { }, new long[] {1});
+            sender.configure("k", server.url("/").toString());
+            server.enqueue(new MockResponse().setResponseCode(200));
+            sender.drain();
+            assertGolden(name, gunzip(server.takeRequest()));
+        } finally {
+            server.shutdown();
+        }
+    }
+
     static void assertGolden(String name, String body) throws Exception {
         // Key order is part of the snapshot: the envelope is written in a fixed order.
         assertEquals(name + " drifted", golden(name).toString(2), new JSONObject(body).toString(2));
