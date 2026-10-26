@@ -1,0 +1,50 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:02.000Z",
+  "batch_size": 2,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "android",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app.exit",
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "exit.reason": "anr",
+        "exit.importance": "foreground",
+        "exit.description": "user request after error: Input dispatching timed out",
+        "exit.status": 0,
+        "exit.pss_kb": 51200,
+        "exit.rss_kb": 102400,
+        "exit.timestamp": 1793008700000,
+        "exit.trace": "----- pid 4242 -----\n\"main\" prio=5 tid=1 Native\n",
+        "session.id": "session_1"
+      }
+    },
+    {
+      "type": "event",
+      "eventName": "app.exit",
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "exit.reason": "user_requested",
+        "exit.importance": "cached",
+        "exit.status": 0,
+        "exit.pss_kb": 40000,
+        "exit.rss_kb": 90000,
+        "exit.timestamp": 1793008600000,
+        "session.id": "session_1"
+      }
+    }
+  ]
+}

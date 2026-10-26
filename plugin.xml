@@ -61,7 +61,11 @@
     </config-file>
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/EdgeRumPlugin.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Exits.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Consent.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Crash.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Health.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
@@ -75,6 +79,12 @@
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/User.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Watchdog.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <!-- Spec E12: NDK signal handler, built into libedgerum.so by edge-rum.gradle. -->
+    <source-file src="android/src/main/cpp/edge_rum_ndk.c" target-dir="app/src/main/cpp/edgerum" />
+    <source-file src="android/src/main/cpp/CMakeLists.txt" target-dir="app/src/main/cpp/edgerum" />
+    <framework src="android/src/main/edge-rum.gradle" custom="true" type="gradleReference" />
   </platform>
 
   <platform name="ios" package="swift">

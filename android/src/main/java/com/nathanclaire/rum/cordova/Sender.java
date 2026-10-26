@@ -8,6 +8,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -160,7 +161,8 @@ final class Sender {
             health.count("corrupt", seg.events.size());
             return true;
         }
-        Map<String, Long> drops = health.snapshot();
+        // E31: never in a crash batch.
+        Map<String, Long> drops = identity.optBoolean("solo") ? Collections.<String, Long>emptyMap() : health.snapshot();
         int queueDepth = outbox.sealed().size();
         for (int attempt = 0; ; attempt++) {
             int status;

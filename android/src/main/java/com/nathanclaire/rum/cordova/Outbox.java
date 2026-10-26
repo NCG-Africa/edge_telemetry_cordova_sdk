@@ -16,6 +16,8 @@ import java.util.Locale;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * Spec T2–T4, T7: append-only NDJSON segments. The open segment's first line is the identity
@@ -92,6 +94,28 @@ final class Outbox {
             throw e;
         }
         openCount += events.size();
+    }
+
+    /**
+     * T4 / R14: a native crash, ANR or hang record as its own sealed segment, so it ships as a batch
+     * of one under the identity of the build that produced it. Marked `solo` so the sender keeps
+     * `sdk.health` out of it (E31). Safe from a dying thread: one write, one rename.
+     */
+    synchronized void writeSolo(String identity, String event) throws IOException {
+        File tmp = new File(dir, "solo.tmp");
+        String line;
+        try {
+            line = new JSONObject(identity).put("solo", true).toString();
+        } catch (JSONException e) {
+            throw new IOException(e);
+        }
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            out.write((line + '\n' + event + '\n').getBytes(StandardCharsets.UTF_8));
+        }
+        if (!tmp.renameTo(new File(dir, sealedName(clock.getAsLong(), seq++)))) {
+            tmp.delete();
+            throw new IOException("solo segment rename failed");
+        }
     }
 
     /** 30 s after the open segment's first event (T3). */
