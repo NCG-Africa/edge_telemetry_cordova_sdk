@@ -1,0 +1,63 @@
+{
+  "name": "@nathanclaire/rum-cordova",
+  "version": "1.0.0-dev",
+  "description": "Real User Monitoring for Cordova apps on Android and iOS",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NCG-Africa/edge_telemetry_cordova_sdk.git"
+  },
+  "keywords": [
+    "ecosystem:cordova",
+    "cordova-android",
+    "cordova-ios",
+    "rum",
+    "monitoring"
+  ],
+  "cordova": {
+    "id": "@nathanclaire/rum-cordova",
+    "platforms": [
+      "android",
+      "ios"
+    ]
+  },
+  "engines": {
+    "node": ">=20.17.0",
+    "cordovaDependencies": {
+      "1.0.0": {
+        "cordova": ">=13.0.0",
+        "cordova-android": ">=15.0.0",
+        "cordova-ios": ">=8.0.0"
+      }
+    }
+  },
+  "types": "types/index.d.ts",
+  "files": [
+    "www/",
+    "types/",
+    "android/src/main/",
+    "ios/Sources/",
+    "Package.swift",
+    "plugin.xml"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc -p tsconfig.types.json",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:typings": "node scripts/check-typings.mjs",
+    "check:terms": "node scripts/terminology-check.mjs",
+    "pack-audit": "node scripts/pack-audit.mjs",
+    "prepack": "npm run build",
+    "version": "node scripts/sync-version.mjs && git add plugin.xml"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^4.0.5"
+  }
+}
