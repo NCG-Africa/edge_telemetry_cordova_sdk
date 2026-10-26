@@ -50,9 +50,10 @@ class EdgeRumPlugin: CDVPlugin {
         let hangMs = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumHang", defaultValue: true)
             ? Int64(setting("EdgeRumHangTimeoutMs") ?? "") ?? 2000 : 0
         watchdog = Watchdog(hangMs: hangMs) { [weak self] ms in
+            guard let self else { return }
             // Read now, while main is still stuck; recorded on the worker.
             let frames = Crash.mainStack()
-            self?.worker.async { self?.solo(self?.crash.hang(durationMs: ms, frames: frames)) }
+            self.worker.async { self.solo(self.crash.hang(durationMs: ms, frames: frames)) }
         }
         foreground = UIApplication.shared.applicationState != .background
 
@@ -122,8 +123,8 @@ class EdgeRumPlugin: CDVPlugin {
 
     /// T4: a native crash / hang record becomes its own segment under the running build's
     /// identity, after the session gate (a hang follows the roll, S2). Worker queue only.
-    private func solo(_ event: [String: Any]?) {
-        guard let event, consent.enabled else { return }
+    private func solo(_ event: [String: Any]) {
+        guard consent.enabled else { return }
         let before = session.id
         for line in session.admit([event]) { writeSolo(identity, line) }
         if before != nil && before != session.id { notify("session") }

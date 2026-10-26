@@ -94,11 +94,15 @@ final class Outbox {
     /// T4 / R14: a native crash or hang record as a sealed segment of one, under the identity of
     /// the build that produced it. Marked `solo` so the sender keeps `sdk.health` out of it (E31).
     func writeSolo(_ identity: String, _ event: String) throws {
-        guard identity.hasSuffix("}") else { throw CocoaError(.fileWriteUnknown) }
+        guard var id = (try? JSONSerialization.jsonObject(with: Data(identity.utf8))) as? [String: Any] else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        id["solo"] = true
+        guard let line = Session.line(id) else { throw CocoaError(.fileWriteUnknown) }
         lock.lock(); defer { lock.unlock() }
         let name = String(format: "%013lld-%06d.ndjson", clock(), seq)
         seq += 1
-        let text = identity.dropLast() + #","solo":true}"# + "\n" + event + "\n"
+        let text = line + "\n" + event + "\n"
         try Data(text.utf8).write(to: dir.appendingPathComponent(name), options: .atomic)
     }
 

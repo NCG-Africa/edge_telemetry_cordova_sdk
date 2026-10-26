@@ -7,11 +7,12 @@
 // faulting pc first. The first handler to fire writes; a Mach exception is reported there and
 // the BSD signal the kernel raises after it only chains on.
 //
-// ponytail: dladdr isn't strictly async-signal-safe (as in most in-process reporters, and the
+// ponytail: dladdr and pthread_getname_np aren't strictly async-signal-safe (as in most in-process reporters, and the
 // Android NDK handler); a crash inside dyld can deadlock here. Upgrade path: an image table
 // snapshotted at install, if that shows up in the field.
 // ponytail: a host that handles SIGSEGV itself and carries on still leaves a Mach-written report
-// (as KSCrash); the next launch sends it as a crash.
+// (as KSCrash); the next launch sends it as a crash. Likewise, a task-level Mach reporter
+// installed before us gets its ports back but not this exception, only the signal after it.
 #include "edge_rum_crash.h"
 
 #include <dlfcn.h>
@@ -304,7 +305,10 @@ static void *mach_loop(void *arg) {
         exc_request_t msg;
         if (mach_msg(&msg.header, MACH_RCV_MSG, 0, sizeof msg, exc_port, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL)
             != MACH_MSG_SUCCESS) continue;
-        if (__sync_bool_compare_and_swap(&reported, 0, 1) && !report_mach(&msg)) reported = 0;
+        // 2405: mach_exception_raise, the only request EXCEPTION_DEFAULT | MACH_EXCEPTION_CODES sends.
+        if (msg.header.msgh_id == 2405 && __sync_bool_compare_and_swap(&reported, 0, 1) && !report_mach(&msg)) {
+            reported = 0;
+        }
         // Hand back: previous ports restored, then KERN_FAILURE so the kernel raises the BSD
         // signal, whose handler chains to whoever had it before.
         for (mach_msg_type_number_t i = 0; i < prev_count; i++) {
@@ -319,6 +323,8 @@ static void *mach_loop(void *arg) {
         reply.ndr = NDR_record;
         reply.ret = KERN_FAILURE;
         mach_msg(&reply.header, MACH_SEND_MSG, sizeof reply, 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+        mach_port_deallocate(mach_task_self(), msg.thread.name);
+        mach_port_deallocate(mach_task_self(), msg.task.name);
     }
     return NULL;
 }
@@ -346,10 +352,7 @@ static void install_mach(void) {
                              THREAD_STATE_NONE);
 }
 
-static char *install_path;
-
 static void install(void) {
-    strncpy(report_path, install_path, sizeof report_path - 1);
     memcpy(tmp_path, report_path, sizeof report_path);
     strcat(tmp_path, ".tmp");
 
@@ -367,7 +370,8 @@ static void install(void) {
 }
 
 void edge_rum_crash_install(const char *path) {
-    install_path = (char *)path;
+    // Copied before the once: `path` may not outlive this call. Main thread only, so no race.
+    if (!report_path[0]) strncpy(report_path, path, sizeof report_path - 1);
     pthread_once(&once, install);
 }
 
