@@ -120,7 +120,8 @@ final class Sender {
             health.count("corrupt", seg.events.count)
             return true
         }
-        let drops = health.snapshot()
+        // E31: never in a crash batch.
+        let drops = parsed["solo"] as? Bool == true ? [:] : health.snapshot()
         let queueDepth = outbox.sealed().count
         var attempt = 0
         while true {

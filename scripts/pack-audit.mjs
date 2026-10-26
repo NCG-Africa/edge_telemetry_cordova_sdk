@@ -3,7 +3,7 @@
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const ALLOWED = /^(www\/edge-rum\.js|types\/.+\.d\.ts|android\/src\/main\/.+\.java|android\/src\/main\/cpp\/(edge_rum_ndk\.c|CMakeLists\.txt)|android\/src\/main\/edge-rum\.gradle|ios\/Sources\/.+\.swift|Package\.swift|plugin\.xml|package\.json|README\.md|LICENSE|CHANGELOG\.md)$/;
+const ALLOWED = /^(www\/edge-rum\.js|types\/.+\.d\.ts|android\/src\/main\/.+\.java|android\/src\/main\/cpp\/(edge_rum_ndk\.c|CMakeLists\.txt)|android\/src\/main\/edge-rum\.gradle|ios\/Sources\/.+\.swift|ios\/Sources\/EdgeRumCrash\/(edge_rum_crash\.c|include\/edge_rum_crash\.h)|Package\.swift|plugin\.xml|package\.json|README\.md|LICENSE|CHANGELOG\.md)$/;
 const REQUIRED = ['www/edge-rum.js', 'types/index.d.ts', 'plugin.xml', 'Package.swift'];
 
 const root = fileURLToPath(new URL('..', import.meta.url));
