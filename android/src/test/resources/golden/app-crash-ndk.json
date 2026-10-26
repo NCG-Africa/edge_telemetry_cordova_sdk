@@ -1,0 +1,40 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.000Z",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "android",
+    "version": "1.4.1",
+    "build_number": "141"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app.crash",
+      "timestamp": "2026-10-26T10:00:01.500Z",
+      "attributes": {
+        "message": "SIGSEGV, code 1, fault addr 0x0",
+        "stacktrace": "#00 pc 0000000000001a2c  /data/app/~~x/com.nathanclaire.rum.fixture-y/lib/arm64/libgame.so (BuildId: 4f6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b)\n#01 pc 0000000000009f10  /system/lib64/libc.so\n",
+        "exception_type": "SIGSEGV",
+        "cause": "signal 11",
+        "error_context": "libgame.so+0x1a2c",
+        "crash_thread": "fixture.app",
+        "crash_is_main_thread": true,
+        "is_fatal": true,
+        "handled": false,
+        "screen_name": "/checkout",
+        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
+        "session.id": "session_1",
+        "user.id": "u1"
+      }
+    }
+  ]
+}

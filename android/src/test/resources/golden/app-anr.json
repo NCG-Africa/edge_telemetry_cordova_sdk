@@ -1,0 +1,37 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.001Z",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "android",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app.anr",
+      "timestamp": "2026-10-26T10:00:02.001Z",
+      "attributes": {
+        "message": "Main thread blocked for 5000 ms",
+        "stacktrace": "at android.os.MessageQueue.nativePollOnce(Native Method)\nat com.fixture.Cart.total(Cart.java:42)\n",
+        "crash_thread": "main",
+        "crash_is_main_thread": true,
+        "is_fatal": false,
+        "handled": false,
+        "anr_duration_ms": 5000,
+        "screen_name": "/cart",
+        "session.id": "session_1",
+        "user.id": "u1"
+      }
+    }
+  ]
+}

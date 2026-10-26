@@ -1,0 +1,10 @@
+// Spec E12: builds the NDK signal handler (plugin.xml copies its sources to src/main/cpp/edgerum).
+// ponytail: claims the app module's one externalNativeBuild; an app with its own CMake must add
+// edge_rum_ndk.c to it instead. Fine for plain Cordova apps, which have none.
+android {
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/edgerum/CMakeLists.txt')
+        }
+    }
+}
