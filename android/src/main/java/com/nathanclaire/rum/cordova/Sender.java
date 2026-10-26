@@ -62,6 +62,10 @@ final class Sender {
         this.retryMs = retryMs;
     }
 
+    void shutdown() {
+        executor.shutdownNow();
+    }
+
     /** Missing key or endpoint holds segments on disk until both are known (C1). */
     void configure(String apiKey, String endpoint) {
         this.apiKey = apiKey;
@@ -106,7 +110,7 @@ final class Sender {
             return true; // vanished (capped or deleted meanwhile)
         }
         if (seg.identity == null || seg.events.isEmpty()) {
-            outbox.delete(f);
+            f.delete();
             return true;
         }
         Map<String, Long> drops = health.snapshot();
@@ -126,20 +130,18 @@ final class Sender {
             } catch (IOException | JSONException | RuntimeException e) {
                 status = -1; // network error, or a body we can't build (retried, then parked)
             }
-            if (status >= 200 && status < 300) {
-                outbox.delete(f);
-                health.subtract(drops);
+            boolean ok = status >= 200 && status < 300;
+            // R12: any other 4xx is never retried or queued.
+            boolean rejected = status >= 400 && status < 500 && status != 429;
+            if (ok || rejected) {
+                f.delete();
                 parkedUntil.remove(f.getName());
+                if (ok) health.subtract(drops);
+                else health.count("rejected", seg.events.size());
                 return true;
             }
-            if (status >= 400 && status < 500 && status != 429) {
-                // R12: never retried or queued.
-                outbox.delete(f);
-                health.count("rejected", seg.events.size());
-                parkedUntil.remove(f.getName());
-                return true;
-            }
-            if (attempt == retryMs.length) {
+            // A Retry-After beyond the in-process schedule parks instead of holding the only sender thread.
+            if (attempt == retryMs.length || retryAfterMs > retryMs[retryMs.length - 1]) {
                 parkedUntil.put(f.getName(), clock.getAsLong() + Math.max(PARK_MS, retryAfterMs));
                 return false;
             }

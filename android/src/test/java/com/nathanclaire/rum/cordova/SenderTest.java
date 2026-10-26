@@ -152,10 +152,26 @@ public class SenderTest {
 
     @Test public void honoursRetryAfter() throws Exception {
         sealedBatch();
-        server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "30"));
+        server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "10"));
         server.enqueue(new MockResponse().setResponseCode(200));
         sender.drain();
-        assertEquals(Collections.singletonList(30_000L), sleeps);
+        assertEquals(Collections.singletonList(10_000L), sleeps);
+    }
+
+    @Test public void longRetryAfterParksForThatLong() throws Exception {
+        sealedBatch();
+        server.enqueue(new MockResponse().setResponseCode(503).setHeader("Retry-After", "3600"));
+        sender.drain();
+        assertTrue(sleeps.isEmpty());
+
+        now += 3_599_000;
+        sender.drain();
+        assertEquals(1, server.getRequestCount());
+
+        now += 1_000;
+        server.enqueue(new MockResponse().setResponseCode(200));
+        sender.drain();
+        assertTrue(outbox.sealed().isEmpty());
     }
 
     @Test public void networkErrorIsRetried() throws Exception {

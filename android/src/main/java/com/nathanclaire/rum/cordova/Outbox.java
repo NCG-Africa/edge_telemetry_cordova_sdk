@@ -6,6 +6,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -74,8 +75,18 @@ final class Outbox {
             openedAt = clock.getAsLong();
         }
         for (String e : events) sb.append(e).append('\n');
+        long before = open.length();
         try (FileOutputStream out = new FileOutputStream(open, true)) {
             out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            // A partial write would end up mid-file once the next hand-off lands; cut it off.
+            try (RandomAccessFile f = new RandomAccessFile(open, "rw")) {
+                f.setLength(before);
+            } catch (IOException ignored) {
+                // Truncation failed too: the torn line stays trailing until the next append.
+            }
+            if (before == 0) open.delete();
+            throw e;
         }
         openCount += events.size();
     }
@@ -89,8 +100,8 @@ final class Outbox {
         if (open.exists()) {
             // Name = seal time + per-process sequence, so name order is age order.
             String name = String.format(Locale.US, "%013d-%06d%s", clock.getAsLong(), seq++, SEALED_SUFFIX);
-            open.renameTo(new File(dir, name));
-            openCount = 0;
+            // On failure the segment stays open and the next append retries the seal.
+            if (open.renameTo(new File(dir, name))) openCount = 0;
         }
         enforceCaps();
     }
@@ -116,10 +127,6 @@ final class Outbox {
         }
         if (lines.isEmpty()) return new Segment(null, Collections.<String>emptyList());
         return new Segment(lines.get(0), lines.subList(1, lines.size()));
-    }
-
-    void delete(File f) {
-        f.delete();
     }
 
     /** T7: over 5 MB or 200 segments → drop oldest; older than 7 days → drop. Counted (T8). */

@@ -48,12 +48,11 @@ public class EdgeRumPlugin extends CordovaPlugin {
         sender.configure(apiKey, endpoint);
         identity = identity(ctx, new IdGenerator(ctx).deviceId());
 
-        // T3 30 s seal + T6 park retry tick.
         ticker = Executors.newSingleThreadScheduledExecutor();
-        ticker.scheduleWithFixedDelay(() -> {
-            outbox.sealIfDue();
-            sender.trigger();
-        }, 30, 30, TimeUnit.SECONDS);
+        // T3: 30 s after the first event, within a second.
+        ticker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
+        // T6: 30 s retry tick for parked segments.
+        ticker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
         sender.trigger();
     }
 
@@ -105,10 +104,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
                 JSONObject opts = args.optJSONObject(0);
                 if (opts != null) {
                     // From init(); runtime only, never persisted (C1).
-                    String k = opts.optString("apiKey", "").trim();
-                    String e = opts.optString("endpoint", "").trim();
-                    if (!k.isEmpty()) apiKey = k;
-                    if (!e.isEmpty()) endpoint = e;
+                    String key = opts.optString("apiKey", "").trim();
+                    String url = opts.optString("endpoint", "").trim();
+                    if (!key.isEmpty()) apiKey = key;
+                    if (!url.isEmpty()) endpoint = url;
                     sender.configure(apiKey, endpoint);
                     sender.trigger();
                 }
@@ -158,12 +157,15 @@ public class EdgeRumPlugin extends CordovaPlugin {
     @Override
     public void onDestroy() {
         if (ticker != null) ticker.shutdownNow();
+        if (sender != null) sender.shutdown();
     }
 
-    /** T3: background seals the open segment and sends. */
+    /** T3: background seals the open segment and sends; off the UI thread (caps may read files). */
     private void flush() {
-        if (outbox == null) return;
-        outbox.seal();
-        sender.trigger();
+        if (ticker == null) return;
+        ticker.execute(() -> {
+            outbox.seal();
+            sender.trigger();
+        });
     }
 }
