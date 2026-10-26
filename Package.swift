@@ -6,7 +6,7 @@ import PackageDescription
 // Product name must equal the plugin id: cordova-ios 8 references it by id.
 let package = Package(
     name: "@nathanclaire/rum-cordova",
-    // macOS only so the native core's XCTests run on the host (`swift test`); the plugin file is iOS-only.
+    // macOS only so the native core's XCTests run on the host (`xcodebuild test`, see ci.yml); the plugin file is iOS-only.
     platforms: [.iOS(.v14), .macOS(.v11)],
     products: [
         .library(name: "@nathanclaire/rum-cordova", targets: ["EdgeRum"])

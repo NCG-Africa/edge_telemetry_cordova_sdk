@@ -1,4 +1,4 @@
-// iOS only: on the macOS host (`swift test`) the native core builds without Cordova.
+// iOS only: on the macOS host (XCTest) the native core builds without Cordova.
 #if canImport(Cordova)
 import Cordova
 import UIKit
@@ -72,17 +72,16 @@ class EdgeRumPlugin: CDVPlugin {
     @objc private func didEnterBackground() {
         let app = UIApplication.shared
         var task = UIBackgroundTaskIdentifier.invalid
+        // Main thread only: the expiration handler runs there and must end the task before returning.
         let end = {
-            DispatchQueue.main.async {
-                guard task != .invalid else { return }
-                app.endBackgroundTask(task)
-                task = .invalid
-            }
+            guard task != .invalid else { return }
+            app.endBackgroundTask(task)
+            task = .invalid
         }
         task = app.beginBackgroundTask(withName: "EdgeRum flush", expirationHandler: end)
         DispatchQueue.global(qos: .utility).async {
             self.outbox.seal()
-            self.sender.trigger(end)
+            self.sender.trigger { DispatchQueue.main.async(execute: end) }
         }
     }
 

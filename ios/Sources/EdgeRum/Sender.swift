@@ -92,6 +92,7 @@ final class Sender {
     }
 
     /// Sends every sealed segment not inside its park backoff; stops at the first one it parks.
+    /// Runs on the sender queue (via `trigger`); tests call it directly, single-threaded.
     func drain() {
         lock.lock()
         let t = target
@@ -125,7 +126,8 @@ final class Sender {
         while true {
             let body = self.body(deviceId: deviceId, app: app, events: seg.events, drops: drops,
                                  queueDepth: queueDepth, now: clock())
-            let (status, retryAfterMs) = post(Self.gzip(Data(body.utf8)), apiKey: apiKey, url: url)
+            // A body we can't gzip counts as a network error (retried, then parked).
+            let (status, retryAfterMs) = Self.gzip(Data(body.utf8)).map { post($0, apiKey: apiKey, url: url) } ?? (-1, 0)
             let ok = (200..<300).contains(status)
             // R12: any other 4xx is never retried or queued.
             let rejected = (400..<500).contains(status) && status != 429
@@ -188,12 +190,16 @@ final class Sender {
             + #","events":["# + all.joined(separator: ",") + "]}"
     }
 
-    static func rfc3339(_ ms: Int64) -> String {
+    private static let rfc3339Format: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")
         f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
-        return f.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        return f
+    }()
+
+    static func rfc3339(_ ms: Int64) -> String {
+        rfc3339Format.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
     }
 
     static func quote(_ s: String) -> String {
@@ -208,18 +214,18 @@ final class Sender {
     }
 
     /// T5: gzip (zlib, windowBits 15 + 16 = gzip wrapper).
-    static func gzip(_ data: Data) -> Data {
+    static func gzip(_ data: Data) -> Data? {
         var stream = z_stream()
         guard deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 31, 8, Z_DEFAULT_STRATEGY,
-                            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return Data() }
+                            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
         defer { deflateEnd(&stream) }
         var input = [UInt8](data)
         var out = Data()
         var buf = [UInt8](repeating: 0, count: 16_384)
+        var status = Z_OK
         input.withUnsafeMutableBufferPointer { inp in
             stream.next_in = inp.baseAddress
             stream.avail_in = uInt(inp.count)
-            var status = Z_OK
             while status == Z_OK {
                 buf.withUnsafeMutableBufferPointer { b in
                     stream.next_out = b.baseAddress
@@ -229,6 +235,6 @@ final class Sender {
                 }
             }
         }
-        return out
+        return status == Z_STREAM_END ? out : nil
     }
 }

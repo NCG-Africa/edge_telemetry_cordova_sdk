@@ -44,6 +44,11 @@ final class Outbox {
         try? url.setResourceValues(values)
         // A previous process's open segment is sealed now and sent this launch (T3).
         seal()
+        // Seal rename failed: keep appending to it, counting what it already holds.
+        if fm.fileExists(atPath: open.path) {
+            openCount = (try? read(open).events.count) ?? 0
+            openedAt = clock()
+        }
     }
 
     /// Appends one hand-off; seals every `sealEvents` events.
