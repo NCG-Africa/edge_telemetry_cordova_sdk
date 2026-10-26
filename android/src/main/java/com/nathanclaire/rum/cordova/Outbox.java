@@ -107,6 +107,13 @@ final class Outbox {
         enforceCaps();
     }
 
+    /** P7 `disable()` / `reset()`: deletes every unsent event. Not counted as a drop. */
+    synchronized void clear() {
+        open.delete();
+        openCount = 0;
+        for (File f : sealed()) f.delete();
+    }
+
     /** Sealed segments, oldest first. */
     List<File> sealed() {
         File[] files = dir.listFiles((d, name) -> sealedAt(name) >= 0);

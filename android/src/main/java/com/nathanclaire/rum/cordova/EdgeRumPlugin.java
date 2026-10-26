@@ -8,7 +8,9 @@ import android.os.Build;
 import android.os.Process;
 import android.os.SystemClock;
 import java.io.File;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.apache.cordova.LOG;
+import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -26,11 +29,14 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     private Outbox outbox;
     private Sender sender;
-    private ScheduledExecutorService ticker;
+    /** Serial: timers and every state-changing action, so a disable can't interleave an append. */
+    private ScheduledExecutorService worker;
+    private User user;
+    private Session session;
+    private Consent consent;
+    private volatile CallbackContext subscriber;
     private String identity;
     private String sdkVersion;
-    // ponytail: one id per process until session rotation lands (spec E1, issue 03).
-    private final String sessionId = IdGenerator.sessionId();
     private final long processStartedAt =
             System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime());
 
@@ -48,14 +54,32 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
         sender = new Sender(outbox, health, sdkVersion);
         sender.configure(pref("EDGE_RUM_API_KEY"), pref("EDGE_RUM_ENDPOINT"));
-        identity = identityLine(ctx, new IdGenerator(prefsStore(ctx)).deviceId());
+        IdGenerator.Store prefs = prefsStore(ctx);
+        IdGenerator ids = new IdGenerator(prefs);
+        identity = identityLine(ctx, ids.deviceId());
+        user = new User(prefs);
+        SecureRandom random = new SecureRandom();
+        session = new Session(prefs, health, System::currentTimeMillis, sampleRate(), random::nextDouble,
+                IdGenerator::sessionId, user::id);
+        consent = new Consent(prefs, preferences.getBoolean("EdgeRumEnabled", true), session, user, outbox, ids);
 
-        ticker = Executors.newSingleThreadScheduledExecutor();
+        worker = Executors.newSingleThreadScheduledExecutor();
+        // P7: opt-in mode arms nothing until enable().
+        if (consent.enabled()) worker.execute(() -> append(session.begin()));
         // T3: 30 s after the first event, within a second.
-        ticker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
+        worker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
         // T6: 30 s retry tick for parked segments.
-        ticker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
+        worker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
         sender.trigger();
+    }
+
+    /** C1 `EdgeRumSampleRate`; unparseable → NaN, which Session treats as keep-all. */
+    private double sampleRate() {
+        try {
+            return Double.parseDouble(preferences.getString("EdgeRumSampleRate", "1.0").trim());
+        } catch (NumberFormatException e) {
+            return Double.NaN;
+        }
     }
 
     /** C1 plugin variable; the plugin.xml placeholder `unset` means missing (blank is handled by Sender). */
@@ -71,6 +95,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
                 return prefs.getString(key, null);
             }
 
+            // A null value removes the key.
             @Override public boolean put(String key, String value) {
                 return prefs.edit().putString(key, value).commit();
             }
@@ -99,22 +124,18 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext cb) throws JSONException {
+        JSONObject opts = args.optJSONObject(0);
         switch (action) {
             case "getState":
-                cb.success(new JSONObject()
-                        .put("enabled", preferences.getBoolean("EdgeRumEnabled", true))
-                        .put("sessionId", sessionId)
-                        .put("sampled", true)
-                        .put("configured", sender.configured())
-                        .put("sdkVersion", sdkVersion)
-                        .put("deviceStartedAt", processStartedAt));
+                cb.success(state());
                 return true;
-            case "enqueue":
-                JSONObject payload = args.optJSONObject(0);
-                cordova.getThreadPool().execute(() -> enqueue(payload, cb));
+            case "subscribe":
+                subscriber = cb;
+                PluginResult keep = new PluginResult(PluginResult.Status.NO_RESULT);
+                keep.setKeepCallback(true);
+                cb.sendPluginResult(keep);
                 return true;
             case "configure":
-                JSONObject opts = args.optJSONObject(0);
                 if (opts != null) {
                     // From init(); runtime only, never persisted (C1).
                     sender.configure(opts.optString("apiKey", null), opts.optString("endpoint", null));
@@ -122,8 +143,53 @@ public class EdgeRumPlugin extends CordovaPlugin {
                 }
                 cb.success();
                 return true;
+            case "enqueue":
+                worker.execute(() -> enqueue(opts, cb));
+                return true;
+            case "identify":
+                worker.execute(() -> identify(opts, cb));
+                return true;
+            case "clearUser":
+                worker.execute(() -> {
+                    user.clear();
+                    cb.success();
+                });
+                return true;
+            case "enable":
+                worker.execute(() -> setEnabled(true, cb));
+                return true;
+            case "disable":
+                worker.execute(() -> setEnabled(false, cb));
+                return true;
+            case "reset":
+                worker.execute(() -> reset(cb));
+                return true;
             default:
                 return false;
+        }
+    }
+
+    private JSONObject state() throws JSONException {
+        return new JSONObject()
+                .put("enabled", consent.enabled())
+                .put("sessionId", session.id())
+                .put("userId", user.id())
+                .put("sampled", session.id() != null && session.sampled())
+                .put("configured", sender.configured())
+                .put("sdkVersion", sdkVersion)
+                .put("deviceStartedAt", processStartedAt);
+    }
+
+    /** A2 `subscribe`: `{ type, …state }` on the kept callback. */
+    private void notify(String type) {
+        CallbackContext cb = subscriber;
+        if (cb == null) return;
+        try {
+            PluginResult r = new PluginResult(PluginResult.Status.OK, state().put("type", type));
+            r.setKeepCallback(true);
+            cb.sendPluginResult(r);
+        } catch (JSONException e) {
+            LOG.w(TAG, "subscribe update failed", e);
         }
     }
 
@@ -133,20 +199,71 @@ public class EdgeRumPlugin extends CordovaPlugin {
             cb.error("events missing");
             return;
         }
-        List<String> lines = new ArrayList<>(events.length());
+        // P7: opt-in mode / disabled → nothing captured or buffered.
+        if (!consent.enabled()) {
+            cb.success();
+            return;
+        }
+        List<JSONObject> list = new ArrayList<>(events.length());
         for (int i = 0; i < events.length(); i++) {
             JSONObject e = events.optJSONObject(i);
-            if (e != null) lines.add(e.toString());
+            if (e != null) list.add(e);
         }
+        // Not counted on failure: JS counts a failed exec as a drop (A4, T8).
+        if (admit(list)) cb.success();
+        else cb.error("append failed");
+    }
+
+    /** S5: every event goes through the session gate on its way into the outbox. */
+    private boolean admit(List<JSONObject> events) {
+        String before = session.id();
+        boolean ok = append(session.admit(events));
+        if (before != null && !before.equals(session.id())) notify("session");
+        return ok;
+    }
+
+    private boolean append(List<String> lines) {
+        if (lines.isEmpty()) return true;
         try {
             outbox.append(identity, lines);
-            cb.success();
+            sender.trigger();
+            return true;
         } catch (Exception e) {
-            // Not counted here: JS counts a failed exec as a drop (A4, T8).
-            LOG.w(TAG, "enqueue failed", e);
+            LOG.w(TAG, "append failed", e);
+            return false;
+        }
+    }
+
+    /** P6: persisted traits; a trait change becomes one `user.profile.update`. */
+    private void identify(JSONObject traits, CallbackContext cb) {
+        if (traits == null || !consent.enabled()) {
+            cb.success();
+            return;
+        }
+        try {
+            JSONObject update = user.identify(traits);
+            if (update != null) admit(Collections.singletonList(update));
+            cb.success();
+        } catch (JSONException e) {
             cb.error(String.valueOf(e.getMessage()));
         }
-        sender.trigger();
+    }
+
+    private void setEnabled(boolean on, CallbackContext cb) {
+        boolean was = consent.enabled();
+        append(consent.setEnabled(on));
+        if (was != on) notify("enabled");
+        cb.success();
+    }
+
+    /** P7: new device_id and session, user and outbox cleared; enabled state untouched. */
+    private void reset(CallbackContext cb) {
+        identity = identityLine(cordova.getContext(), consent.reset());
+        if (consent.enabled()) {
+            append(session.restart());
+            notify("session");
+        }
+        cb.success();
     }
 
     @Override
@@ -161,19 +278,28 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     @Override
     public void onResume(boolean multitasking) {
-        sender.trigger();
+        if (worker == null) return;
+        worker.execute(() -> {
+            // E1: a foreground after the idle timeout starts a new session.
+            List<String> bookends = consent.enabled() ? session.rotateIfIdle() : Collections.<String>emptyList();
+            if (!bookends.isEmpty()) {
+                append(bookends);
+                notify("session");
+            }
+            sender.trigger();
+        });
     }
 
     @Override
     public void onDestroy() {
-        if (ticker != null) ticker.shutdownNow();
+        if (worker != null) worker.shutdownNow();
         if (sender != null) sender.shutdown();
     }
 
     /** T3: background seals the open segment and sends; off the UI thread (caps may read files). */
     private void flush() {
-        if (ticker == null) return;
-        ticker.execute(() -> {
+        if (worker == null) return;
+        worker.execute(() -> {
             outbox.seal();
             sender.trigger();
         });

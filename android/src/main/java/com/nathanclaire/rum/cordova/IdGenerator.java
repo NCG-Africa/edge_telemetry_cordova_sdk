@@ -8,10 +8,11 @@ import java.util.UUID;
  * Never throws: device_id is required on every batch.
  */
 final class IdGenerator {
-    /** The two SharedPreferences calls the id needs; either may throw. */
+    /** The SharedPreferences calls the native core needs (ids, session, user, consent); either may throw. */
     interface Store {
         String get(String key);
 
+        /** A null value removes the key. */
         boolean put(String key, String value);
     }
 
@@ -42,6 +43,21 @@ final class IdGenerator {
         } catch (RuntimeException e) {
             return fallbackId();
         }
+    }
+
+    /** P7 `reset()`: a new device_id, replacing any fallback; in-memory if storage fails. */
+    synchronized String rotate() {
+        String id = generate("device");
+        try {
+            if (store.put(KEY_DEVICE_ID, id) && store.put(KEY_FALLBACK_DEVICE_ID, null)) {
+                pinnedFallbackId = null;
+                return id;
+            }
+        } catch (RuntimeException ignored) {
+            // falls through to pinning
+        }
+        pinnedFallbackId = id;
+        return id;
     }
 
     // R9: a random UUIDv4 persisted once under its own key; if storage fails too, in-memory for

@@ -58,4 +58,25 @@ public class IdGeneratorTest {
     @Test public void sessionIdFormat() {
         assertTrue(IdGenerator.sessionId().matches("session_\\d+_[0-9a-f]{16}_android"));
     }
+
+    @Test public void rotateReplacesTheIdEvenAfterFallback() {
+        FakeStore store = new FakeStore();
+        store.values.put(IdGenerator.KEY_FALLBACK_DEVICE_ID, "fallback");
+        IdGenerator ids = new IdGenerator(store);
+        assertEquals("fallback", ids.deviceId());
+        String rotated = ids.rotate();
+        assertNotEquals("fallback", rotated);
+        assertEquals(rotated, ids.deviceId());
+        assertEquals(rotated, new IdGenerator(store).deviceId());
+    }
+
+    @Test public void rotateWithBrokenStorageStillRotatesForTheProcess() {
+        FakeStore store = new FakeStore();
+        store.failAll = true;
+        IdGenerator ids = new IdGenerator(store);
+        String before = ids.deviceId();
+        String rotated = ids.rotate();
+        assertNotEquals(before, rotated);
+        assertEquals(rotated, ids.deviceId());
+    }
 }
