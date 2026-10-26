@@ -69,6 +69,10 @@
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Sender.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Session.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/User.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
   </platform>
 
   <platform name="ios" package="swift">

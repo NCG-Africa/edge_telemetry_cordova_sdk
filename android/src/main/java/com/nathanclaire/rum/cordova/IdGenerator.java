@@ -44,6 +44,21 @@ final class IdGenerator {
         }
     }
 
+    /** P7 `reset()`: a new device_id, replacing any fallback; in-memory if storage fails. */
+    synchronized String rotate() {
+        String id = generate("device");
+        try {
+            if (store.put(KEY_DEVICE_ID, id) && store.put(KEY_FALLBACK_DEVICE_ID, null)) {
+                pinnedFallbackId = null;
+                return id;
+            }
+        } catch (RuntimeException ignored) {
+            // falls through to pinning
+        }
+        pinnedFallbackId = id;
+        return id;
+    }
+
     // R9: a random UUIDv4 persisted once under its own key; if storage fails too, in-memory for
     // this process.
     private String fallbackId() {

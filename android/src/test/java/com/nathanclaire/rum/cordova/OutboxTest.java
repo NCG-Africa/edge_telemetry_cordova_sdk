@@ -141,4 +141,16 @@ public class OutboxTest {
         reloaded.subtract(Collections.singletonMap("events_dropped.expired", 3L));
         assertEquals(Collections.singletonMap("events_dropped.expired", 2L), new Health(dir).snapshot());
     }
+
+    @Test public void clearDeletesOpenAndSealedSegments() throws Exception {
+        outbox.append(SenderTest.IDENTITY, Collections.singletonList("{}"));
+        outbox.seal();
+        outbox.append(SenderTest.IDENTITY, Collections.singletonList("{}"));
+        outbox.clear();
+        outbox.seal();
+        assertTrue(outbox.sealed().isEmpty());
+        outbox.append("{\"new\":1}", Collections.singletonList("{}"));
+        outbox.seal();
+        assertEquals("{\"new\":1}", outbox.read(outbox.sealed().get(0)).identity);
+    }
 }
