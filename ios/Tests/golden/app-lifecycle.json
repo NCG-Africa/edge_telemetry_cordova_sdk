@@ -1,0 +1,44 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.000Z",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_ios",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "ios",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app_lifecycle",
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "lifecycle.state": "backgrounded",
+        "device.platform": "ios",
+        "device.platform_version": "26.1",
+        "device.model": "iPhone16,2",
+        "device.manufacturer": "Apple",
+        "device.brand": "Apple",
+        "device.locale": "en-KE",
+        "device.timezone": "Africa/Nairobi",
+        "device.dark_mode": false,
+        "device.cpu_abi": "arm64",
+        "device.cpu_cores": 6,
+        "device.screen_density": 3.0,
+        "device.screen_width_px": 1290,
+        "device.screen_height_px": 2796,
+        "display.refresh_rate": 120,
+        "network.type": "wifi",
+        "session.id": "session_1"
+      }
+    }
+  ]
+}

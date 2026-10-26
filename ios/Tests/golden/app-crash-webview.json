@@ -1,0 +1,37 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.000Z",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_ios",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "ios",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app.crash",
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "message": "WebView content process terminated",
+        "exception_type": "WebViewTerminated",
+        "cause": "WebViewTerminated",
+        "webview.reason": "unknown",
+        "webview.detected_by": "callback",
+        "is_fatal": true,
+        "handled": false,
+        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
+        "screen_name": "/checkout",
+        "session.id": "session_1"
+      }
+    }
+  ]
+}

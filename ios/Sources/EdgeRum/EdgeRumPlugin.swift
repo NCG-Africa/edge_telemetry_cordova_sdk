@@ -2,6 +2,7 @@
 #if canImport(Cordova)
 import Cordova
 import EdgeRumCrash
+import Network
 import UIKit
 
 /// Native core entry point (spec A1). Loaded at launch via onload=true.
@@ -23,8 +24,19 @@ class EdgeRumPlugin: CDVPlugin {
     private var identity = ""
     private var sdkVersion = "unknown"
     private let processStartedAt = EdgeRumPlugin.processStartMs()
+    private var launch: Launch!
+    /// A6 fallback, when the hook is off. Worker queue only.
+    private var page = PageWatch()
+    /// E32: launch-time device context; `network.type` is added per event.
+    private var device: [String: Any] = [:]
+    /// E26: last path transport; nil until the first reading.
+    private var networkType: String?
+    private let networkLock = NSLock()
+    private var pathMonitor: NWPathMonitor?
 
     override func pluginInitialize() {
+        // A5: onload plugins start in viewDidLoad, once the WebView exists; close enough to "WebView created".
+        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = support.appendingPathComponent("edge_rum")
         let health = Health(dir: dir)
@@ -46,6 +58,8 @@ class EdgeRumPlugin: CDVPlugin {
         consent = Consent(defaults: .standard,
                           prefEnabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumEnabled", defaultValue: true),
                           session: session, user: user, outbox: outbox, deviceId: deviceId)
+        device = Self.deviceContext()
+        session.context = { [weak self] in self?.context() ?? [:] }
         crash = Crash(dir: dir)
         let hangMs = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumHang", defaultValue: true)
             ? Int64(setting("EdgeRumHangTimeoutMs") ?? "") ?? 2000 : 0
@@ -60,14 +74,19 @@ class EdgeRumPlugin: CDVPlugin {
         worker.async {
             // T4: last launch's crash, under the identity it crashed with. Gone either way.
             if let p = self.crash.takeReport(), self.consent.enabled { self.writeSolo(p.identity, p.event) }
+            let timeout = Launch.takeTimeout(.standard)
             // P7: opt-in mode arms nothing until enable().
             guard self.consent.enabled else { return }
             self.append(self.session.begin())
+            self.record(timeout.map { [$0] } ?? [])
             // Armed after the context exists, so a crash always has one to replay under.
             self.saveCrashContext()
             self.arm()
         }
 
+        // E23: opt-in periodic memory, foreground only, on the 1 s tick.
+        let memoryEvery = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumMemorySampling", defaultValue: false)
+            ? max(1, (Int(setting("EdgeRumMemorySamplingIntervalMs") ?? "") ?? 30_000) / 1000) : 0
         // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
         var ticks = 0
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
@@ -77,6 +96,11 @@ class EdgeRumPlugin: CDVPlugin {
             self.outbox.sealIfDue()
             ticks += 1
             if ticks % 30 == 0 { self.sender.trigger() }
+            if memoryEvery > 0 && ticks % memoryEvery == 0 {
+                DispatchQueue.main.async {
+                    if self.foreground { self.worker.async { self.sampleMemory("periodic") } }
+                }
+            }
         }
         timer.resume()
         ticker = timer
@@ -86,7 +110,148 @@ class EdgeRumPlugin: CDVPlugin {
                        name: UIApplication.didEnterBackgroundNotification, object: nil)
         nc.addObserver(self, selector: #selector(willEnterForeground),
                        name: UIApplication.willEnterForegroundNotification, object: nil)
+
+        // A7: no deviceready by the timeout → marker for next launch. Backgrounded on the splash
+        // screen isn't a timeout.
+        let readyTimeoutMs = Int64(setting("EdgeRumDevicereadyTimeoutMs") ?? "") ?? 10_000
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(readyTimeoutMs))) {
+            let foreground = self.foreground
+            self.worker.async {
+                if self.consent.enabled && foreground && !self.launch.devicereadySeen {
+                    Launch.timedOut(.standard, timeoutMs: readyTimeoutMs, now: Outbox.now())
+                }
+            }
+        }
+        watchWebView()
+        watchNetwork()
         sender.trigger()
+    }
+
+    /// A6 / E13: the swizzle on tested cordova-ios; otherwise inference on each page load.
+    private func watchWebView() {
+        let hooked = WebViewHook.install(NSClassFromString("CDVWebViewEngine"),
+                                         cordovaMajor: Int(CORDOVA_VERSION_MIN_REQUIRED) / 10_000,
+                                         enabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumIosWebViewHook",
+                                                                                              defaultValue: true)) { [weak self] in
+            guard let self else { return }
+            self.worker.async { self.solo(self.crash.webViewTerminated(detectedBy: "callback")) }
+        }
+        guard !hooked else { return }
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("CDVPageDidLoadNotification"), object: webView,
+                                               queue: nil) { [weak self] _ in
+            guard let self else { return }
+            self.worker.async {
+                if self.page.loaded() { self.solo(self.crash.webViewTerminated(detectedBy: "inference")) }
+            }
+        }
+    }
+
+    /// E26: path transport changes → `network_change`; the first reading only seeds `network.type`.
+    private func watchNetwork() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { self?.network("none"); return }
+            self?.network(path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.cellular) ? "cellular"
+                          : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other")
+        }
+        monitor.start(queue: DispatchQueue(label: "com.nathanclaire.rum.network"))
+        pathMonitor = monitor
+    }
+
+    private func network(_ type: String) {
+        networkLock.lock()
+        let previous = networkType
+        networkType = type
+        networkLock.unlock()
+        guard let previous, previous != type else { return }
+        let at = Outbox.now()
+        worker.async { self.recordPassive([Signals.network(previous: previous, current: type, at: at)]) }
+        // T6: connectivity regained retries parked segments.
+        if previous == "none" { sender.trigger() }
+    }
+
+    /// E32: device context plus the current `network.type`, stamped by the session gate.
+    private func context() -> [String: Any] {
+        networkLock.lock(); defer { networkLock.unlock() }
+        var c = device
+        c["network.type"] = networkType
+        return c
+    }
+
+    /// Main thread (UIKit).
+    private static func deviceContext() -> [String: Any] {
+        var u = utsname()
+        uname(&u)
+        let machine = withUnsafeBytes(of: &u.machine) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+        let screen = UIScreen.main
+        #if arch(arm64)
+        let abi = "arm64"
+        #else
+        let abi = "x86_64"
+        #endif
+        return [
+            "device.platform": "ios",
+            "device.platform_version": UIDevice.current.systemVersion,
+            // The simulator reports the host's arch; it names the device it plays.
+            "device.model": ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? machine,
+            "device.manufacturer": "Apple",
+            "device.brand": "Apple",
+            "device.locale": Locale.current.identifier.replacingOccurrences(of: "_", with: "-"),
+            "device.timezone": TimeZone.current.identifier,
+            "device.dark_mode": UITraitCollection.current.userInterfaceStyle == .dark,
+            "device.cpu_abi": abi,
+            "device.cpu_cores": ProcessInfo.processInfo.activeProcessorCount,
+            "device.screen_density": Double(screen.scale),
+            "device.screen_width_px": Int(screen.nativeBounds.width),
+            "device.screen_height_px": Int(screen.nativeBounds.height),
+            "display.refresh_rate": screen.maximumFramesPerSecond,
+        ]
+    }
+
+    /// E24: memory warning → `memory_pressure`.
+    override func onMemoryWarning() {
+        let at = Outbox.now()
+        let footprint = Signals.footprintBytes()
+        worker.async { self.recordPassive([Signals.pressure(footprint: footprint, at: at)]) }
+    }
+
+    /// Worker queue only: consent (P7), then the session gate.
+    private func record(_ events: [[String: Any]]) {
+        if !events.isEmpty && consent.enabled { _ = admit(events) }
+    }
+
+    /// Background-capable native signals: the gate that isn't session activity.
+    private func recordPassive(_ events: [[String: Any]]) {
+        if !events.isEmpty && consent.enabled { append(session.admitPassive(events)) }
+    }
+
+    /// E22 / E23: footprint + RSS. Worker queue only.
+    private func sampleMemory(_ source: String) {
+        recordPassive(Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(), source: source,
+                                     at: Outbox.now()))
+    }
+
+    /// Worker queue only: `app.start` without `markReady`, if still owed.
+    private func finishLaunch() {
+        record(launch.finish().map { [$0] } ?? [])
+    }
+
+    /// A5: JS phase marks; `deviceready` opens the `markReady` window. A6: `pagehide` is the clean
+    /// shutdown the inference looks for.
+    @objc(markPhase:)
+    func markPhase(_ command: CDVInvokedUrlCommand) {
+        let opts = command.arguments.first as? [String: Any]
+        worker.async {
+            defer { self.ok(command) }
+            guard let phase = opts?["phase"] as? String else { return }
+            if phase == "pagehide" { return self.page.hidden() }
+            let ts = (opts?["ts"] as? NSNumber)?.int64Value ?? Outbox.now()
+            if let start = self.launch.mark(phase, ts) {
+                self.record([start])
+            } else if phase == Launch.deviceready {
+                self.worker.asyncAfter(deadline: .now() + .milliseconds(Int(Launch.readyWindowMs))) { self.finishLaunch() }
+            }
+        }
     }
 
     /// W3: app identity from Bundle.main, no override.
@@ -144,8 +309,11 @@ class EdgeRumPlugin: CDVPlugin {
         crash.saveContext(identity: identity, sessionId: session.id, userId: user.id)
     }
 
-    /// T3: background seals the open segment and sends, inside a background task.
+    /// T3: background seals the open segment and sends, inside a background task. E2 background;
+    /// E22 end bookend (every background may be the session's last: it ends after the idle
+    /// timeout, unobserved); A5: an owed `app.start` goes now. All appended before the seal.
     @objc private func didEnterBackground() {
+        let at = Outbox.now()
         foreground = false
         watchdog.stop()
         let app = UIApplication.shared
@@ -157,13 +325,17 @@ class EdgeRumPlugin: CDVPlugin {
             task = .invalid
         }
         task = app.beginBackgroundTask(withName: "EdgeRum flush", expirationHandler: end)
-        DispatchQueue.global(qos: .utility).async {
+        worker.async {
+            self.record([Signals.lifecycle("backgrounded", at: at)])
+            self.finishLaunch()
+            self.sampleMemory("session_end")
             self.outbox.seal()
             self.sender.trigger { DispatchQueue.main.async(execute: end) }
         }
     }
 
     @objc private func willEnterForeground() {
+        let at = Outbox.now()
         foreground = true
         if consent.enabled { watchdog.start() }
         worker.async {
@@ -173,6 +345,7 @@ class EdgeRumPlugin: CDVPlugin {
                 self.append(bookends)
                 self.notify("session")
             }
+            self.record([Signals.lifecycle("foregrounded", at: at)]) // E2
             self.sender.trigger()
         }
     }
@@ -249,6 +422,11 @@ class EdgeRumPlugin: CDVPlugin {
     @discardableResult
     private func append(_ lines: [String]) -> Bool {
         guard !lines.isEmpty else { return true }
+        // E22: a new session gets its memory bookend.
+        // ponytail: substring check on serialized lines; Session returns strings, not events.
+        if lines.contains(where: { $0.contains(#""eventName":"session.started""#) }) {
+            worker.async { self.sampleMemory("session_start") }
+        }
         do {
             try outbox.append(identity, lines)
             sender.trigger()

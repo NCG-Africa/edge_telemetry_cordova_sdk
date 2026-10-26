@@ -34,6 +34,8 @@ final class Session {
     private let newId: () -> String
     private let userId: () -> String?
     private let lock = NSLock()
+    /// E32: device / network context stamped on every event; an event's own key wins. Set before first use.
+    var context: () -> [String: Any] = { [:] }
 
     private var current: String?
     private var startedAt: Int64 = 0
@@ -128,6 +130,17 @@ final class Session {
         return out
     }
 
+    /// The gate for native signals that arrive in the background (network, memory): never rotates
+    /// and isn't activity, so it can't keep an idle session alive (E1).
+    func admitPassive(_ events: [[String: Any]]) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        guard current != nil else { return [] }
+        var out: [String] = []
+        gate(events, &out)
+        persist()
+        return out
+    }
+
     private func rotate(_ out: inout [String]) {
         guard current != nil, clock() - lastActivityAt > Self.idleMs else { return }
         out.append(finalized())
@@ -204,6 +217,7 @@ final class Session {
 
     private func stamp(_ attrs: [String: Any]) -> [String: Any] {
         var a = attrs
+        a.merge(context()) { own, _ in own }
         a["session.id"] = current
         if let user = userId() { a["user.id"] = user }
         return a
