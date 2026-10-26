@@ -324,4 +324,17 @@ public class SessionTest {
         e.getJSONObject("attributes").put("bridge.action", action);
         return e;
     }
+
+    @Test public void passiveSignalsNeitherRotateNorKeepTheSessionAlive() throws Exception {
+        Session s = session(1.0);
+        s.begin();
+        now += Session.IDLE_MS / 2;
+        assertEquals(Collections.singletonList("network_change"), names(s.admitPassive(Collections.singletonList(event("network_change")))));
+        now += Session.IDLE_MS / 2 + 1;
+        List<String> late = s.admitPassive(Collections.singletonList(event("memory_pressure")));
+        assertEquals("no rotation from the background", Collections.singletonList("memory_pressure"), names(late));
+        assertEquals("session_1", parse(late).get(0).getJSONObject("attributes").getString("session.id"));
+        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom_event"),
+                names(s.admit(Collections.singletonList(event("custom_event")))));
+    }
 }

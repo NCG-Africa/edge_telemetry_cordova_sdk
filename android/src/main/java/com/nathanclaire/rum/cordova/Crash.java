@@ -129,9 +129,7 @@ final class Crash {
                 .put("exception_type", "WebViewTerminated")
                 .put("cause", "WebViewTerminated")
                 .put("webview.reason", reason)
-                .put("webview.detected_by", "callback")
-                .put("crash_thread", main.getName())
-                .put("crash_is_main_thread", true);
+                .put("webview.detected_by", "callback");
         return event("app.crash", clock.getAsLong(), fatal(a));
     }
 

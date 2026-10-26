@@ -128,6 +128,25 @@ final class Session {
     synchronized List<String> admit(List<JSONObject> events) {
         if (id == null) return Collections.emptyList();
         List<String> out = rotateIfIdle();
+        gate(events, out);
+        lastActivityAt = clock.getAsLong();
+        persist();
+        return out;
+    }
+
+    /**
+     * The gate for native signals that arrive in the background (network, memory): never rotate
+     * and don't count as activity, so they can't keep an idle session alive (E1).
+     */
+    synchronized List<String> admitPassive(List<JSONObject> events) {
+        if (id == null) return Collections.emptyList();
+        List<String> out = new ArrayList<>();
+        gate(events, out);
+        persist();
+        return out;
+    }
+
+    private void gate(List<JSONObject> events, List<String> out) {
         for (JSONObject e : events) {
             JSONObject attrs = e.optJSONObject("attributes");
             if (attrs == null) attrs = new JSONObject();
@@ -149,9 +168,6 @@ final class Session {
             }
             out.add(e.toString());
         }
-        lastActivityAt = clock.getAsLong();
-        persist();
-        return out;
     }
 
     private void count(boolean metric, String name, JSONObject attrs) {

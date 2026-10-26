@@ -19,7 +19,6 @@
       "eventName": "network_change",
       "attributes": {
         "network.previous_type": "wifi",
-        "network.available": false,
         "network.type": "none",
         "session.id": "session_1"
       },

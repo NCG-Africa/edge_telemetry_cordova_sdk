@@ -67,19 +67,22 @@ public class EdgeRumPlugin extends CordovaPlugin {
     private String sdkVersion;
     private final long processStartedAt =
             System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime());
-    private Launch launch;
+    /** A5: one per process, so an Activity recreated in a live process doesn't start a second cold launch. */
+    private static Launch launch;
     /** E32: launch-time device context; `network.type` is added per event. */
     private JSONObject device;
     private String[] deviceKeys;
     /** E26: last default-network transport; null until the first callback. */
     private volatile String networkType;
-    private ComponentCallbacks2 trim;
-    private ConnectivityManager.NetworkCallback net;
+    private ComponentCallbacks2 trimCallback;
+    private ConnectivityManager.NetworkCallback networkCallback;
 
     @Override
     protected void pluginInitialize() {
         // A5: plugins load once the WebView exists; close enough to "WebView created".
-        launch = new Launch(processStartedAt, System.currentTimeMillis());
+        synchronized (EdgeRumPlugin.class) {
+            if (launch == null) launch = new Launch(processStartedAt, System.currentTimeMillis());
+        }
         Context ctx = cordova.getContext();
         File dir = new File(ctx.getFilesDir(), "edge_rum");
         Health health = new Health(dir);
@@ -133,10 +136,11 @@ public class EdgeRumPlugin extends CordovaPlugin {
         worker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
         // T6: 30 s retry tick for parked segments.
         worker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
-        // A7: no deviceready by the timeout → marker for next launch.
+        // A7: no deviceready by the timeout → marker for next launch. Backgrounded on the splash
+        // screen (WebView paused) isn't a timeout.
         int readyTimeoutMs = preferences.getInteger("EdgeRumDevicereadyTimeoutMs", 10000);
         worker.schedule(() -> {
-            if (consent.enabled() && !launch.devicereadySeen()) {
+            if (consent.enabled() && foreground && !launch.devicereadySeen()) {
                 Launch.timedOut(prefs, readyTimeoutMs, System.currentTimeMillis());
             }
         }, readyTimeoutMs, TimeUnit.MILLISECONDS);
@@ -154,10 +158,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     /** E24: `onTrimMemory` / `onLowMemory` → `memory_pressure`. */
     private void watchMemoryPressure(Context ctx) {
-        trim = new ComponentCallbacks2() {
+        trimCallback = new ComponentCallbacks2() {
             @Override public void onTrimMemory(int level) {
                 long at = System.currentTimeMillis();
-                capture(() -> list(Signals.pressure(level, rssKb(), at)));
+                capture(true, () -> list(Signals.pressure(level, rssKb(), at)));
             }
 
             @Override public void onLowMemory() {
@@ -167,7 +171,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
             @Override public void onConfigurationChanged(Configuration c) {
             }
         };
-        ctx.getApplicationContext().registerComponentCallbacks(trim);
+        ctx.getApplicationContext().registerComponentCallbacks(trimCallback);
     }
 
     /** E26: default-network transport changes → `network_change`; the first reading only seeds `network.type`. */
@@ -185,8 +189,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
             }
         };
         try {
+            // No network now → "none", so the first one that comes is a reported transition.
+            if (cm.getActiveNetwork() == null) networkType = "none";
             cm.registerDefaultNetworkCallback(cb);
-            net = cb;
+            networkCallback = cb;
         } catch (RuntimeException e) {
             // Missing permission (stripped manifest) or the per-app callback limit: no network_change.
             LOG.w(TAG, "network callback unavailable", e);
@@ -198,7 +204,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         if (type.equals(previous)) return;
         networkType = type;
         long at = System.currentTimeMillis();
-        if (previous != null) capture(() -> list(Signals.network(previous, type, at)));
+        if (previous != null) capture(true, () -> list(Signals.network(previous, type, at)));
     }
 
     /** E32: device context plus the current `network.type`, stamped by the session gate. */
@@ -252,12 +258,17 @@ public class EdgeRumPlugin extends CordovaPlugin {
         List<JSONObject> build() throws JSONException;
     }
 
-    /** Native signals from any thread: built there (timestamps), gated and appended on the worker. */
-    private void capture(NativeRecords records) {
+    /**
+     * Native signals from any thread: built there (timestamps), gated and appended on the worker.
+     * `passive` ones (background network / memory) don't count as session activity.
+     */
+    private void capture(boolean passive, NativeRecords records) {
         try {
             worker.execute(() -> {
                 try {
-                    record(records.build());
+                    List<JSONObject> events = records.build();
+                    if (passive) recordPassive(events);
+                    else record(events);
                 } catch (JSONException e) {
                     LOG.w(TAG, "native record failed", e);
                 }
@@ -272,6 +283,11 @@ public class EdgeRumPlugin extends CordovaPlugin {
         if (!events.isEmpty() && consent.enabled()) admit(events);
     }
 
+    private void recordPassive(List<JSONObject> events) {
+        if (events.isEmpty() || !consent.enabled()) return;
+        append(session.admitPassive(events));
+    }
+
     private static List<JSONObject> list(JSONObject e) {
         return e == null ? Collections.<JSONObject>emptyList() : Collections.singletonList(e);
     }
@@ -279,7 +295,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
     /** E22 / E23: RSS + PSS, worker only (`getPss` walks smaps). */
     private void sampleMemory(String source) {
         try {
-            record(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis()));
+            recordPassive(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis()));
         } catch (JSONException | RuntimeException e) {
             LOG.w(TAG, "memory sample failed", e);
         }
@@ -641,7 +657,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
     public void onStart() {
         if (worker == null) return;
         long at = System.currentTimeMillis();
-        capture(() -> list(Signals.lifecycle("foregrounded", at)));
+        capture(false, () -> list(Signals.lifecycle("foregrounded", at)));
     }
 
     /**
@@ -652,7 +668,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
     public void onStop() {
         if (worker == null) return;
         long at = System.currentTimeMillis();
-        capture(() -> list(Signals.lifecycle("backgrounded", at)));
+        capture(false, () -> list(Signals.lifecycle("backgrounded", at)));
         worker.execute(() -> {
             finishLaunch();
             sampleMemory("session_end");
@@ -680,8 +696,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
     public void onDestroy() {
         if (watchdog != null) watchdog.stop();
         Context ctx = cordova.getContext();
-        if (trim != null) ctx.getApplicationContext().unregisterComponentCallbacks(trim);
-        if (net != null) ((ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(net);
+        if (trimCallback != null) ctx.getApplicationContext().unregisterComponentCallbacks(trimCallback);
+        if (networkCallback != null) {
+            ((ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(networkCallback);
+        }
         if (worker != null) worker.shutdownNow();
         if (sender != null) sender.shutdown();
     }

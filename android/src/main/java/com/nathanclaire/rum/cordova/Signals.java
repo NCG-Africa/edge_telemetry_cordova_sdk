@@ -66,8 +66,7 @@ final class Signals {
     static JSONObject network(String previous, String current, long at) throws JSONException {
         return Crash.event("network_change", at, new JSONObject()
                 .put("network.type", current)
-                .put("network.previous_type", previous)
-                .put("network.available", !"none".equals(current)));
+                .put("network.previous_type", previous));
     }
 
     /** `VmRSS:` of `/proc/self/status`, in kB; -1 when absent. */

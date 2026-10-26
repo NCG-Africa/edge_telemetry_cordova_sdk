@@ -19,9 +19,7 @@
       "eventName": "app.crash",
       "attributes": {
         "is_fatal": true,
-        "crash_is_main_thread": true,
         "user.id": "u1",
-        "crash_thread": "main",
         "webview.detected_by": "callback",
         "cause": "WebViewTerminated",
         "message": "WebView renderer process gone (crash)",
