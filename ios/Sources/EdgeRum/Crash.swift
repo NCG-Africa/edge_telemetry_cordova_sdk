@@ -1,7 +1,7 @@
 import EdgeRumCrash
 import Foundation
 
-/// Spec A3, E12, E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.hang` records
+/// Spec A3, E12, E13, E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.hang` records
 /// built from it. A crash can't run Swift: the C handlers (`edge_rum_crash.c`) leave a plain-text
 /// report that `takeReport()` turns into an event next launch, under the identity, session and
 /// breadcrumbs `saveContext` saved before it died.
@@ -77,6 +77,25 @@ final class Crash {
         a["screen_name"] = screen
         lock.unlock()
         return Self.record("app.hang", clock(), a)
+    }
+
+    /// E13: WebView content process gone (A6). iOS gives no reason. `detectedBy` is `callback`
+    /// (the hook saw it) or `inference` (a reload with no clean shutdown). Fatal, same path as E12.
+    func webViewTerminated(detectedBy: String) -> [String: Any] {
+        var a: [String: Any] = [
+            "message": "WebView content process terminated",
+            "exception_type": "WebViewTerminated",
+            "cause": "WebViewTerminated",
+            "webview.reason": "unknown",
+            "webview.detected_by": detectedBy,
+            "is_fatal": true,
+            "handled": false,
+        ]
+        lock.lock()
+        a["crash.breadcrumbs"] = Self.json(crumbs)
+        a["screen_name"] = screen
+        lock.unlock()
+        return Self.record("app.crash", clock(), a)
     }
 
     /// What a crash report can't know: the identity, session, user and breadcrumbs of the moment.
@@ -207,7 +226,7 @@ final class Crash {
         if !images.isEmpty { a["crash.binary_images"] = json(images) }
     }
 
-    private static func record(_ name: String, _ at: Int64, _ attrs: [String: Any]) -> [String: Any] {
+    static func record(_ name: String, _ at: Int64, _ attrs: [String: Any]) -> [String: Any] {
         ["type": "event", "eventName": name, "timestamp": Sender.rfc3339(at), "attributes": attrs]
     }
 

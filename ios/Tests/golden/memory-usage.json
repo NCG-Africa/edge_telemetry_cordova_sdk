@@ -1,0 +1,46 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.000Z",
+  "batch_size": 2,
+  "device_id": "device_1700000000000_0123456789abcdef_ios",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "ios",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "metric",
+      "metricName": "memory_usage",
+      "value": 187.5,
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "metric.unit": "MB",
+        "memory.usage_mb": 187.5,
+        "memory.type": "footprint",
+        "memory.source": "session_start",
+        "session.id": "session_1"
+      }
+    },
+    {
+      "type": "metric",
+      "metricName": "memory_usage",
+      "value": 250.0,
+      "timestamp": "2026-10-26T10:00:02.000Z",
+      "attributes": {
+        "metric.unit": "MB",
+        "memory.usage_mb": 250.0,
+        "memory.type": "rss",
+        "memory.source": "session_start",
+        "session.id": "session_1"
+      }
+    }
+  ]
+}
