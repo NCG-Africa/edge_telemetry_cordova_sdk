@@ -17,6 +17,10 @@ final class DeviceIdTests: XCTestCase {
             if failWrite { throw NSError(domain: "keychain", code: -25308) }
             self.value = value
         }
+
+        func delete() throws {
+            value = nil
+        }
     }
 
     var defaults: UserDefaults!

@@ -5,6 +5,7 @@ import Security
 protocol SecureStore {
     func read() throws -> String?
     func write(_ value: String) throws
+    func delete() throws
 }
 
 /// Spec W4 / R9: port of `edge_telemetry_ios_sdk` `IdentityProvider` (device id only): Keychain
@@ -27,7 +28,6 @@ struct DeviceId {
     }
 
     /// First launch and P7 `reset()`: a new id, stored.
-    // ponytail: on reset, a failed Keychain write leaves the old Keychain row winning next launch; add a delete to SecureStore if that bites.
     func rotate() -> String {
         let id = Self.newId("device")
         do {
@@ -35,6 +35,8 @@ struct DeviceId {
             // The next launch picks up the Keychain copy.
             defaults.removeObject(forKey: Self.fallbackKey)
         } catch {
+            // A stale Keychain row would win over the fallback next launch (and undo a reset).
+            try? keychain.delete()
             defaults.set(id, forKey: Self.fallbackKey)
         }
         return id
@@ -84,5 +86,10 @@ struct Keychain: SecureStore {
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+    }
+
+    func delete() throws {
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
 }

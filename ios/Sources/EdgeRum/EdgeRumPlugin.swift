@@ -118,7 +118,8 @@ class EdgeRumPlugin: CDVPlugin {
 
     @objc(getState:)
     func getState(_ command: CDVInvokedUrlCommand) {
-        commandDelegate.send(CDVPluginResult(status: .ok, messageAs: state()), callbackId: command.callbackId)
+        // On the worker: after the launch session.begin(), never mid reset/disable.
+        commandDelegate.send(CDVPluginResult(status: .ok, messageAs: worker.sync { state() }), callbackId: command.callbackId)
     }
 
     private func state() -> [String: Any] {
@@ -248,7 +249,7 @@ class EdgeRumPlugin: CDVPlugin {
             sender.configure(apiKey: opts["apiKey"] as? String, url: opts["endpoint"] as? String)
             sender.trigger()
         }
-        commandDelegate.send(CDVPluginResult(status: .ok), callbackId: command.callbackId)
+        ok(command)
     }
 
     private func ok(_ command: CDVInvokedUrlCommand) {

@@ -80,11 +80,11 @@ final class ConsentTests: XCTestCase {
         XCTAssertTrue(c.enabled, "reset leaves enabled state alone")
     }
 
-    func testRotateFallsBackToDefaultsWhenKeychainWriteFails() {
+    func testResetSticksWhenKeychainWriteFails() {
+        let before = deviceId.resolve()
         keychain.failWrite = true
-        let id = deviceId.rotate()
-        XCTAssertEqual(defaults.string(forKey: DeviceId.fallbackKey), id)
-        keychain.failRead = true
-        XCTAssertEqual(DeviceId(keychain: keychain, defaults: defaults).resolve(), id)
+        let after = consent(true).reset()
+        XCTAssertNotEqual(before, after)
+        XCTAssertEqual(DeviceId(keychain: keychain, defaults: defaults).resolve(), after, "stale Keychain row must not win")
     }
 }

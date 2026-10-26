@@ -310,16 +310,4 @@ final class SessionTests: XCTestCase {
         // Event dictionaries are unordered: compare parsed, not byte for byte.
         XCTAssertEqual(json(gunzip(StubProtocol.requests[0].body)) as NSDictionary, json(golden(name)) as NSDictionary)
     }
-
-    func testPassiveSignalsNeitherRotateNorKeepTheSessionAlive() {
-        let s = session(1)
-        _ = s.begin()
-        now += Session.idleMs / 2
-        XCTAssertEqual(Self.names(s.admitPassive([Self.event("network_change")])), ["network_change"])
-        now += Session.idleMs / 2 + 1
-        let late = s.admitPassive([Self.event("memory_pressure")])
-        XCTAssertEqual(Self.names(late), ["memory_pressure"], "no rotation from the background")
-        XCTAssertEqual(Self.attrs(late[0])["session.id"] as? String, "session_1")
-        XCTAssertEqual(Self.names(s.admit([Self.event("custom_event")])), ["session.finalized", "session.started", "custom_event"])
-    }
 }

@@ -128,17 +128,6 @@ final class Session {
         return out
     }
 
-    /// The gate for native signals that arrive in the background (network, memory): never rotate
-    /// and don't count as activity, so they can't keep an idle session alive (E1).
-    func admitPassive(_ events: [[String: Any]]) -> [String] {
-        lock.lock(); defer { lock.unlock() }
-        guard current != nil else { return [] }
-        var out: [String] = []
-        gate(events, &out)
-        persist()
-        return out
-    }
-
     private func rotate(_ out: inout [String]) {
         guard current != nil, clock() - lastActivityAt > Self.idleMs else { return }
         out.append(finalized())
