@@ -220,6 +220,28 @@ public class SessionTest {
         assertEquals(Collections.singletonMap("events_dropped.cap.bridge", 3L), health.snapshot());
     }
 
+    @Test public void screenCountKeepsCountingPastTheVisitedList() throws Exception {
+        Session s = session(1.0);
+        s.begin();
+        s.admit(repeat(event("navigation", "navigation.to_screen", "/a"), 60));
+        now += Session.IDLE_MS + 1;
+        JSONObject fin = parse(s.rotateIfIdle()).get(0).getJSONObject("attributes");
+        assertEquals(60, fin.getInt("session.screen_count"));
+        assertEquals(50, fin.getString("session.visited_screens").split(",").length);
+    }
+
+    @Test public void anAtSignInTheMessageIsNotTheTopFrame() throws Exception {
+        Session s = session(1.0);
+        s.begin();
+        assertEquals("distinct frames under one message → distinct keys", 10, s.admit(java.util.Arrays.asList(
+                crash("E", "Error: bad a@b.io\n    at f (app:///x.js:1:1)"), crash("E", "Error: bad a@b.io\n    at f (app:///x.js:1:1)"),
+                crash("E", "Error: bad a@b.io\n    at f (app:///x.js:1:1)"), crash("E", "Error: bad a@b.io\n    at f (app:///x.js:1:1)"),
+                crash("E", "Error: bad a@b.io\n    at f (app:///x.js:1:1)"),
+                crash("E", "Error: bad a@b.io\n    at g (app:///x.js:2:1)"), crash("E", "Error: bad a@b.io\n    at g (app:///x.js:2:1)"),
+                crash("E", "Error: bad a@b.io\n    at g (app:///x.js:2:1)"), crash("E", "Error: bad a@b.io\n    at g (app:///x.js:2:1)"),
+                crash("E", "g@app:///x.js:2:1"))).size());
+    }
+
     @Test public void uncappedEventsPassFreely() throws Exception {
         Session s = session(1.0);
         s.begin();

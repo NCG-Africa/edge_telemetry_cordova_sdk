@@ -61,6 +61,8 @@
     </config-file>
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/EdgeRumPlugin.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Consent.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Health.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/IdGenerator.java"

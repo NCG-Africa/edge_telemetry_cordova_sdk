@@ -26,17 +26,14 @@ import org.json.JSONObject;
 /** Native core entry point (spec A1). Loaded at launch via onload=true. */
 public class EdgeRumPlugin extends CordovaPlugin {
     private static final String TAG = "EdgeRum";
-    private static final String KEY_ENABLED = "enabled";
 
     private Outbox outbox;
     private Sender sender;
     /** Serial: timers and every state-changing action, so a disable can't interleave an append. */
     private ScheduledExecutorService worker;
-    private IdGenerator.Store prefs;
-    private IdGenerator ids;
     private User user;
     private Session session;
-    private volatile boolean enabled;
+    private Consent consent;
     private volatile CallbackContext subscriber;
     private String identity;
     private String sdkVersion;
@@ -57,19 +54,18 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
         sender = new Sender(outbox, health, sdkVersion);
         sender.configure(pref("EDGE_RUM_API_KEY"), pref("EDGE_RUM_ENDPOINT"));
-        prefs = prefsStore(ctx);
-        ids = new IdGenerator(prefs);
+        IdGenerator.Store prefs = prefsStore(ctx);
+        IdGenerator ids = new IdGenerator(prefs);
         identity = identityLine(ctx, ids.deviceId());
         user = new User(prefs);
         SecureRandom random = new SecureRandom();
         session = new Session(prefs, health, System::currentTimeMillis, sampleRate(), random::nextDouble,
                 IdGenerator::sessionId, user::id);
-        // P7: a persisted enable()/disable() overrides the EdgeRumEnabled pref.
-        String saved = prefs.get(KEY_ENABLED);
-        enabled = saved != null ? Boolean.parseBoolean(saved) : preferences.getBoolean("EdgeRumEnabled", true);
+        consent = new Consent(prefs, preferences.getBoolean("EdgeRumEnabled", true), session, user, outbox, ids);
 
         worker = Executors.newSingleThreadScheduledExecutor();
-        if (enabled) worker.execute(() -> append(session.begin()));
+        // P7: opt-in mode arms nothing until enable().
+        if (consent.enabled()) worker.execute(() -> append(session.begin()));
         // T3: 30 s after the first event, within a second.
         worker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
         // T6: 30 s retry tick for parked segments.
@@ -175,10 +171,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     private JSONObject state() throws JSONException {
         return new JSONObject()
-                .put("enabled", enabled)
-                .put("sessionId", enabled ? session.id() : null)
+                .put("enabled", consent.enabled())
+                .put("sessionId", session.id())
                 .put("userId", user.id())
-                .put("sampled", session.sampled())
+                .put("sampled", session.id() != null && session.sampled())
                 .put("configured", sender.configured())
                 .put("sdkVersion", sdkVersion)
                 .put("deviceStartedAt", processStartedAt);
@@ -204,7 +200,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
             return;
         }
         // P7: opt-in mode / disabled → nothing captured or buffered.
-        if (!enabled) {
+        if (!consent.enabled()) {
             cb.success();
             return;
         }
@@ -240,7 +236,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     /** P6: persisted traits; a trait change becomes one `user.profile.update`. */
     private void identify(JSONObject traits, CallbackContext cb) {
-        if (traits == null || !enabled) {
+        if (traits == null || !consent.enabled()) {
             cb.success();
             return;
         }
@@ -253,29 +249,17 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
     }
 
-    /** P7: persisted. Disable deletes the unsent outbox and the user's traits. */
     private void setEnabled(boolean on, CallbackContext cb) {
-        prefs.put(KEY_ENABLED, String.valueOf(on));
-        if (on != enabled) {
-            enabled = on;
-            if (on) {
-                append(session.begin());
-            } else {
-                session.end();
-                outbox.clear();
-                user.clear();
-            }
-            notify("enabled");
-        }
+        boolean was = consent.enabled();
+        append(consent.setEnabled(on));
+        if (was != on) notify("enabled");
         cb.success();
     }
 
-    /** P7: new device_id, new session, user and outbox cleared; enabled state untouched. */
+    /** P7: new device_id and session, user and outbox cleared; enabled state untouched. */
     private void reset(CallbackContext cb) {
-        outbox.clear();
-        user.clear();
-        identity = identityLine(cordova.getContext(), ids.rotate());
-        if (enabled) {
+        identity = identityLine(cordova.getContext(), consent.reset());
+        if (consent.enabled()) {
             append(session.restart());
             notify("session");
         }
@@ -297,7 +281,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         if (worker == null) return;
         worker.execute(() -> {
             // E1: a foreground after the idle timeout starts a new session.
-            List<String> bookends = enabled ? session.rotateIfIdle() : Collections.<String>emptyList();
+            List<String> bookends = consent.enabled() ? session.rotateIfIdle() : Collections.<String>emptyList();
             if (!bookends.isEmpty()) {
                 append(bookends);
                 notify("session");

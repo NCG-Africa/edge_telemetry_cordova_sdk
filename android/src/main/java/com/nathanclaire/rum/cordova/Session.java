@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -24,7 +25,17 @@ final class Session {
     static final long IDLE_MS = 30 * 60_000;
     static final String KEY_RECORD = "session";
     static final String KEY_TOTAL = "total_sessions";
+    /** `session.visited_screens` keeps the first 50; `session.screen_count` counts them all (S6). */
     private static final int MAX_SCREENS = 50;
+    /** S4 per-session caps. */
+    static final int CAP_ERRORS = 50;
+    static final int CAP_ERRORS_PER_KEY = 5;
+    static final int CAP_INTERACTIONS = 200;
+    static final int CAP_BRIDGE = 50;
+    static final int CAP_BRIDGE_PER_CALL = 5;
+    static final int CAP_CUSTOM = 500;
+    /** A JSC frame (`fn@url:line[:col]`); a V8 message line with an `@` in it doesn't match. */
+    private static final Pattern JSC_FRAME = Pattern.compile("^[^\\s@]*@\\S+:\\d+(:\\d+)?$");
 
     /** S2: never sampled out, never capped (fatal `app.crash` checked separately). */
     private static final Set<String> EXEMPT = new HashSet<>(Arrays.asList("session.started", "session.finalized",
@@ -47,6 +58,7 @@ final class Session {
     private boolean sampled;
     private int eventCount;
     private int metricCount;
+    private int screenCount;
     private List<String> screens = new ArrayList<>();
     private Map<String, Integer> caps = new HashMap<>();
 
@@ -139,7 +151,9 @@ final class Session {
         if (metric) metricCount++;
         else eventCount++;
         String screen = attrs.optString("navigation.to_screen");
-        if ("navigation".equals(name) && !screen.isEmpty() && screens.size() < MAX_SCREENS) screens.add(screen);
+        if (!"navigation".equals(name) || screen.isEmpty()) return;
+        screenCount++;
+        if (screens.size() < MAX_SCREENS) screens.add(screen);
     }
 
     private static boolean exempt(String name, JSONObject attrs) {
@@ -148,19 +162,19 @@ final class Session {
 
     /** S4 / S7: the `sdk.health` reason when a cap is hit, else null (and the event is counted). */
     private String capReason(boolean metric, String name, JSONObject attrs) {
-        if (metric) return SDK_METRICS.contains(name) || allow("custom", 500, null, 0) ? null : "cap.custom";
-        switch (name) {
+        if (metric && SDK_METRICS.contains(name)) return null;
+        switch (metric ? "custom_event" : name) {
             case "app.crash":
                 String key = "error:" + attrs.optString("exception_type") + "|" + topFrame(attrs.optString("stacktrace"));
-                return allow("error", 50, key, 5) ? null : "cap.error";
+                return allow("error", CAP_ERRORS, key, CAP_ERRORS_PER_KEY) ? null : "cap.error";
             case "ui.interaction":
-                return allow("interaction", 200, null, 0) ? null : "cap.interaction";
+                return allow("interaction", CAP_INTERACTIONS, null, 0) ? null : "cap.interaction";
             case "bridge.call":
                 String call = "bridge:" + attrs.optString("bridge.service") + "|" + attrs.optString("bridge.action");
-                return allow("bridge", 50, call, 5) ? null : "cap.bridge";
-            case "custom_event":
+                return allow("bridge", CAP_BRIDGE, call, CAP_BRIDGE_PER_CALL) ? null : "cap.bridge";
+            case "custom_event": // and host metrics
             case "task.complete":
-                return allow("custom", 500, null, 0) ? null : "cap.custom";
+                return allow("custom", CAP_CUSTOM, null, 0) ? null : "cap.custom";
             default:
                 return null;
         }
@@ -180,7 +194,7 @@ final class Session {
     private static String topFrame(String stack) {
         for (String line : stack.split("\n")) {
             String l = line.trim();
-            if (l.startsWith("at ") || l.contains("@")) return l;
+            if (l.startsWith("at ") || JSC_FRAME.matcher(l).matches()) return l;
         }
         return "";
     }
@@ -200,6 +214,7 @@ final class Session {
         sampled = rate >= 1 || roll.getAsDouble() < rate; // S1
         eventCount = 0;
         metricCount = 0;
+        screenCount = 0;
         screens = new ArrayList<>();
         caps = new HashMap<>();
         int total = 1;
@@ -230,7 +245,7 @@ final class Session {
                     .put("session.duration_ms", Math.max(0, lastActivityAt - startedAt))
                     .put("session.event_count", eventCount)
                     .put("session.metric_count", metricCount)
-                    .put("session.screen_count", screens.size())
+                    .put("session.screen_count", screenCount)
                     .put("session.visited_screens", join(screens)));
             return bookend("session.finalized", lastActivityAt, a);
         } catch (JSONException e) {
@@ -267,6 +282,7 @@ final class Session {
                     .put("sampled", sampled)
                     .put("events", eventCount)
                     .put("metrics", metricCount)
+                    .put("screen_count", screenCount)
                     .put("screens", new JSONArray(screens))
                     .put("caps", new JSONObject(caps))
                     .toString());
@@ -294,6 +310,7 @@ final class Session {
             sampled = r.getBoolean("sampled");
             eventCount = r.getInt("events");
             metricCount = r.getInt("metrics");
+            screenCount = r.getInt("screen_count");
             JSONArray s = r.getJSONArray("screens");
             screens = new ArrayList<>();
             for (int i = 0; i < s.length(); i++) screens.add(s.getString(i));

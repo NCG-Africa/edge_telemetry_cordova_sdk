@@ -8,10 +8,11 @@ import java.util.UUID;
  * Never throws: device_id is required on every batch.
  */
 final class IdGenerator {
-    /** The two SharedPreferences calls the id needs; either may throw. */
+    /** The SharedPreferences calls the native core needs (ids, session, user, consent); either may throw. */
     interface Store {
         String get(String key);
 
+        /** A null value removes the key. */
         boolean put(String key, String value);
     }
 
