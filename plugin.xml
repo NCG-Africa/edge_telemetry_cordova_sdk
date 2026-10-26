@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        id="@nathanclaire/rum-cordova"
+        version="1.0.0-dev">
+  <name>Edge RUM</name>
+  <description>Real User Monitoring for Cordova apps on Android and iOS</description>
+  <license>MIT</license>
+
+  <engines>
+    <engine name="cordova" version=">=13.0.0" />
+    <engine name="cordova-android" version=">=15.0.0" />
+    <engine name="cordova-ios" version=">=8.0.0" />
+  </engines>
+
+  <!-- Spec C1: plugin variables, written to config.xml and read natively at launch. -->
+  <preference name="EDGE_RUM_API_KEY" default="" />
+  <preference name="EDGE_RUM_ENDPOINT" default="" />
+  <preference name="EDGE_RUM_ENABLED" default="true" />
+  <preference name="EDGE_RUM_ANR_ENABLED" default="true" />
+  <preference name="EDGE_RUM_ANR_TIMEOUT_MS" default="5000" />
+  <preference name="EDGE_RUM_HANG_ENABLED" default="true" />
+  <preference name="EDGE_RUM_HANG_TIMEOUT_MS" default="2000" />
+  <preference name="EDGE_RUM_MEMORY_SAMPLING_ENABLED" default="false" />
+  <preference name="EDGE_RUM_MEMORY_SAMPLING_INTERVAL_MS" default="30000" />
+  <preference name="EDGE_RUM_IOS_WEBVIEW_HOOK" default="true" />
+  <preference name="EDGE_RUM_DEVICEREADY_TIMEOUT_MS" default="10000" />
+  <preference name="EDGE_RUM_SAMPLE_RATE" default="1.0" />
+  <preference name="EDGE_RUM_DEBUG" default="false" />
+
+  <config-file target="config.xml" parent="/*">
+    <preference name="EDGE_RUM_API_KEY" value="$EDGE_RUM_API_KEY" />
+    <preference name="EDGE_RUM_ENDPOINT" value="$EDGE_RUM_ENDPOINT" />
+    <preference name="EdgeRumEnabled" value="$EDGE_RUM_ENABLED" />
+    <preference name="EdgeRumAnr" value="$EDGE_RUM_ANR_ENABLED" />
+    <preference name="EdgeRumAnrTimeoutMs" value="$EDGE_RUM_ANR_TIMEOUT_MS" />
+    <preference name="EdgeRumHang" value="$EDGE_RUM_HANG_ENABLED" />
+    <preference name="EdgeRumHangTimeoutMs" value="$EDGE_RUM_HANG_TIMEOUT_MS" />
+    <preference name="EdgeRumMemorySampling" value="$EDGE_RUM_MEMORY_SAMPLING_ENABLED" />
+    <preference name="EdgeRumMemorySamplingIntervalMs" value="$EDGE_RUM_MEMORY_SAMPLING_INTERVAL_MS" />
+    <preference name="EdgeRumIosWebViewHook" value="$EDGE_RUM_IOS_WEBVIEW_HOOK" />
+    <preference name="EdgeRumDevicereadyTimeoutMs" value="$EDGE_RUM_DEVICEREADY_TIMEOUT_MS" />
+    <preference name="EdgeRumSampleRate" value="$EDGE_RUM_SAMPLE_RATE" />
+    <preference name="EdgeRumDebug" value="$EDGE_RUM_DEBUG" />
+  </config-file>
+
+  <js-module src="www/edge-rum.js" name="EdgeRum">
+    <clobbers target="EdgeRum" />
+  </js-module>
+
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="EdgeRum">
+        <param name="android-package" value="com.nathanclaire.rum.cordova.EdgeRumPlugin" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/EdgeRumPlugin.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+  </platform>
+
+  <platform name="ios" package="swift">
+    <config-file target="config.xml" parent="/*">
+      <feature name="EdgeRum">
+        <param name="ios-package" value="EdgeRumPlugin" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+  </platform>
+</plugin>
