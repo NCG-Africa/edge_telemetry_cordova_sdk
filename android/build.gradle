@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        java {
+            // Android/Cordova-bound classes; the core they wire up is plain Java.
+            exclude '**/EdgeRumPlugin.java', '**/IdGenerator.java'
+        }
+    }
+}
+
+dependencies {
+    // Android ships org.json; this is its API-identical clone (checked JSONException, no newer
+    // json.org additions), so code that compiles here compiles inside a Cordova app.
+    def androidJson = 'com.vaadin.external.google:android-json:0.0.20131108.vaadin1'
+    compileOnly androidJson
+    testImplementation androidJson
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // Language level the plugin must compile at inside any Cordova app.
+    options.release = 8
+    options.compilerArgs << '-Xlint:-options'
+}
+
+test {
+    useJUnit()
+    testLogging { exceptionFormat 'full'; events 'failed' }
+}

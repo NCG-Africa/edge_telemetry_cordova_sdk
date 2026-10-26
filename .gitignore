@@ -6,3 +6,5 @@ types/
 Package.resolved
 .DS_Store
 .idea/
+android/build/
+android/.gradle/

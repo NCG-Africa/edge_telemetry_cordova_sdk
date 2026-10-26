@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['www/', 'types/', 'node_modules/', '.build/'] },
+  { ignores: ['www/', 'types/', 'node_modules/', '.build/', 'android/build/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

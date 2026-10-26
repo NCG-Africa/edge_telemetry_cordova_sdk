@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -15,6 +15,15 @@ describe('plugin metadata (K1, V3)', () => {
     expect(xml).toContain(`id="${pkg.name}"`);
     expect(xml).toMatch(new RegExp(`<plugin[^>]*version="${pkg.version}"`));
     expect(pkg.cordova.id).toBe(pkg.name);
+  });
+
+  it('native sdk.version preference matches package.json', () => {
+    expect(xml).toContain(`<preference name="EdgeRumSdkVersion" value="${pkg.version}" />`);
+  });
+
+  it('every Android source file is installed by plugin.xml', () => {
+    const dir = 'android/src/main/java/com/nathanclaire/rum/cordova/';
+    for (const f of readdirSync(root + dir)) expect(xml).toContain(`src="${dir}${f}"`);
   });
 
   it('declares every C1 plugin variable', () => {
