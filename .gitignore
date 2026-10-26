@@ -8,3 +8,5 @@ Package.resolved
 .idea/
 android/build/
 android/.gradle/
+test-results/
+playwright-report/

@@ -45,6 +45,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "node scripts/build.mjs && playwright test",
     "check:typings": "node scripts/check-typings.mjs",
     "check:terms": "node scripts/terminology-check.mjs",
     "pack-audit": "node scripts/pack-audit.mjs",
@@ -53,9 +54,11 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
+    "jsdom": "^30.1.3",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.72.0",
     "vitest": "^4.0.5"

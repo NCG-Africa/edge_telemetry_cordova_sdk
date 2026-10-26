@@ -26,6 +26,9 @@ jobs:
       - run: npm run check:typings
       - run: npm run check:terms
       - run: npm run pack-audit
+      # Spec Q2: browser harness against the fake native + mock-ingest.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
 
   android-unit:
     # Spec Q3: JUnit + MockWebServer over the plain-Java native core.
