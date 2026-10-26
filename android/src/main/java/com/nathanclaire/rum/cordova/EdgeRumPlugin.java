@@ -50,6 +50,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
     private static final String TAG = "EdgeRum";
 
     private Outbox outbox;
+    private Health health;
     private Sender sender;
     /** Serial: timers and every state-changing action, so a disable can't interleave an append. */
     private ScheduledExecutorService worker;
@@ -85,7 +86,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
         Context ctx = cordova.getContext();
         File dir = new File(ctx.getFilesDir(), "edge_rum");
-        Health health = new Health(dir);
+        health = new Health(dir);
         outbox = new Outbox(dir, System::currentTimeMillis, health);
         sdkVersion = preferences.getString("EdgeRumSdkVersion", null);
         if (sdkVersion == null) {
@@ -569,6 +570,15 @@ public class EdgeRumPlugin extends CordovaPlugin {
         // Not counted on failure: JS counts a failed exec as a drop (A4, T8).
         boolean ok = admit(list);
         saveCrashContext();
+        // T8: JS-side drops (pre-ready cap, failed exec, beforeSend), counted only once the append
+        // lands — on error JS keeps them and resends, so counting here too would double them.
+        JSONObject drops = payload.optJSONObject("drops");
+        if (ok && drops != null) {
+            JSONArray reasons = drops.names();
+            for (int i = 0; reasons != null && i < reasons.length(); i++) {
+                health.count(reasons.optString(i), drops.optLong(reasons.optString(i)));
+            }
+        }
         if (ok) cb.success();
         else cb.error("append failed");
     }

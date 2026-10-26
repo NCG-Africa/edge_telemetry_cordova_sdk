@@ -50,7 +50,11 @@ export interface EdgeRumOptions {
   sanitizeUrl?: (url: string) => string;
   /** Map a route path to the screen name to report. */
   screenName?: (path: string) => string;
-  /** Inspect or edit each event before it leaves JS; return `null` to drop it. Must be synchronous. */
+  /**
+   * Inspect or edit each event before it leaves JS; return `null` to drop it. Must be synchronous.
+   * Sees JS-captured events only: native-origin events (native crashes, launch time, lifecycle,
+   * memory, network, sessions) bypass it. Session and sequence keys are restored after it runs.
+   */
   beforeSend?: BeforeSend;
   /** Release name stamped on JS errors, for source-map lookup. */
   release?: string;
@@ -170,23 +174,20 @@ export function flush() {
       if (out.kind === 'failed' && state.options.debug) console.warn('EdgeRum: beforeSend threw or returned a non-event; event dropped');
     }
   }
-  // T8: JS-side drops ride the next hand-off as `sdk.health`, cleared once native has it.
+  // T8: JS-side drops ride the next hand-off; native folds them into its `sdk.health`.
+  // Cleared only once native has them, so a failed exec resends them.
   const sent = { ...drops };
-  const attributes: Attributes = {};
-  for (const [k, n] of Object.entries(sent)) attributes['events_dropped.' + k] = n;
-  const health = Object.keys(sent).length > 0;
-  if (health) events.push({ type: 'event', eventName: 'sdk.health', timestamp: new Date().toISOString(), attributes });
-  if (!events.length) return;
-  const captured = events.length - (health ? 1 : 0);
-  exec('enqueue', [{ events, breadcrumbs: [] }], () => {
+  const hasDrops = Object.keys(sent).length > 0;
+  if (!events.length && !hasDrops) return;
+  exec('enqueue', [{ events, breadcrumbs: [], ...(hasDrops && { drops: sent }) }], () => {
     for (const [k, n] of Object.entries(sent)) {
       drops[k] -= n;
       if (!drops[k]) delete drops[k];
     }
-  }, () => count('js_exec_failed', captured)); // A4: no JS fallback sender
+  }, () => count('js_exec_failed', events.length)); // A4: no JS fallback sender
 }
 
-function apply(s: unknown) {
+function applyNativeState(s: unknown) {
   if (!s || typeof s !== 'object') return; // keep-callback NO_RESULT
   const n = s as NativeState;
   const before = state.sessionId;
@@ -204,9 +205,9 @@ function onReady() {
     for (const f of pending.splice(0)) f();
     flush();
   };
-  exec('subscribe', [], apply);
+  exec('subscribe', [], applyNativeState);
   exec('getState', [], (s) => {
-    apply(s);
+    applyNativeState(s);
     go();
   }, go);
 }

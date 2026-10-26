@@ -1,4 +1,4 @@
-import { call, DEFAULTS, discard, live, record, setEnabled, state, whenReady, type Attributes, type EdgeRumOptions } from './core';
+import { call, DEFAULTS, discard, live, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
 
 // Self-import: the global's type is this module's exports, so typings never drift from the bundle.
 import type * as EdgeRumModule from './index';
@@ -158,7 +158,7 @@ export function markReady(): void {
 }
 
 /** Add an attribute to every JS event captured from now on. */
-export function setAttribute(key: string, value: string | number | boolean): void {
+export function setAttribute(key: string, value: AttributeValue): void {
   if (typeof key === 'string' && key && ['string', 'number', 'boolean'].includes(typeof value)) state.globals[key] = value;
 }
 
@@ -189,7 +189,7 @@ export function reset(): void {
   call('reset');
 }
 
-/** The current session id (empty string when there is none, e.g. on browser). */
+/** The current session id, once `deviceready` has fired (empty string when there is none, e.g. on browser). */
 export function getSessionId(): Promise<string> {
   if (!live) return Promise.resolve('');
   return new Promise((resolve) => whenReady(() => resolve(state.sessionId ?? '')));

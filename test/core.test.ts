@@ -27,19 +27,20 @@ async function load({ platformId = 'android', state = {} as object, cordova = tr
     : undefined;
   const api = await import('../src/index');
   const core = await import('../src/core');
-  const enqueues = () => calls.filter((c) => c.action === 'enqueue').map((c) => (c.args[0] as { events: EdgeRumEvent[] }).events);
+  const payloads = () => calls.filter((c) => c.action === 'enqueue').map((c) => c.args[0] as { events: EdgeRumEvent[]; drops?: Record<string, number> });
+  const enqueues = () => payloads().map((p) => p.events);
   return {
     api,
     core,
     calls,
     native,
     enqueues,
+    /** `drops` carried by the nth hand-off (default: last). */
+    drops: (n = -1) => payloads().at(n)?.drops,
     events: () => enqueues().flat(),
     ready: () => document.dispatchEvent(new Event('deviceready')),
   };
 }
-
-const health = (events: EdgeRumEvent[]) => events.find((e) => e.eventName === 'sdk.health')?.attributes;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -68,7 +69,8 @@ describe('pre-deviceready buffer (A4)', () => {
     const events = t.events();
     expect(events[0].attributes['event.name']).toBe('e5');
     expect(events.filter((e) => e.eventName === 'custom_event')).toHaveLength(500);
-    expect(health(events)).toEqual({ 'events_dropped.js_buffer_full': 5 });
+    expect(events).toHaveLength(500);
+    expect(t.drops()).toEqual({ js_buffer_full: 5 });
   });
 
   it('runs bridge calls made before deviceready ahead of the first hand-off', async () => {
@@ -152,12 +154,12 @@ describe('exec failure (A4, T8)', () => {
     t.api.track('c');
     vi.advanceTimersByTime(2000);
     const last = t.enqueues()[1];
-    expect(last.map((e) => e.attributes['event.name'])).toEqual(['c', undefined]);
-    expect(health(last)).toEqual({ 'events_dropped.js_exec_failed': 2 });
+    expect(last.map((e) => e.attributes['event.name'])).toEqual(['c']);
+    expect(t.drops(1)).toEqual({ js_exec_failed: 2 });
     // Delivered → cleared.
     t.api.track('d');
     vi.advanceTimersByTime(2000);
-    expect(health(t.enqueues()[2])).toBeUndefined();
+    expect(t.drops(2)).toBeUndefined();
   });
 
   it('counts a throwing exec the same way', async () => {
@@ -169,7 +171,7 @@ describe('exec failure (A4, T8)', () => {
     t.native.throwOnExec = false;
     t.api.track('b');
     vi.advanceTimersByTime(2000);
-    expect(health(t.events())).toEqual({ 'events_dropped.js_exec_failed': 1 });
+    expect(t.drops()).toEqual({ js_exec_failed: 1 });
   });
 });
 
@@ -181,8 +183,8 @@ describe('beforeSend (P5)', () => {
     t.api.track('secret');
     t.api.track('ok');
     vi.advanceTimersByTime(2000);
-    expect(t.events().map((e) => e.attributes['event.name'])).toEqual(['ok', undefined]);
-    expect(health(t.events())).toEqual({ 'events_dropped.before_send_null': 1 });
+    expect(t.events().map((e) => e.attributes['event.name'])).toEqual(['ok']);
+    expect(t.drops()).toEqual({ before_send_null: 1 });
   });
 
   it('a throw or non-event drops the event (fail closed) and counts it', async () => {
@@ -198,8 +200,8 @@ describe('beforeSend (P5)', () => {
     t.api.track('a');
     t.api.track('b');
     vi.advanceTimersByTime(2000);
-    expect(t.events().filter((e) => e.eventName === 'custom_event')).toEqual([]);
-    expect(health(t.events())).toEqual({ 'events_dropped.before_send_error': 2 });
+    expect(t.events()).toEqual([]);
+    expect(t.drops()).toEqual({ before_send_error: 2 });
   });
 
   it('re-stamps session/sequence keys and the event name after the hook', async () => {
@@ -220,13 +222,14 @@ describe('beforeSend (P5)', () => {
     expect(e.attributes).toEqual({ 'event.name': 'a', email: 'redacted', 'session.id': 's1' });
   });
 
-  it('cannot see or drop the SDK’s own sdk.health row', async () => {
+  it('cannot drop the drop counts themselves', async () => {
     const t = await load();
     t.api.init({ beforeSend: () => null });
     t.ready();
     t.api.track('a');
     vi.advanceTimersByTime(2000);
-    expect(t.events().map((e) => e.eventName)).toEqual(['sdk.health']);
+    expect(t.enqueues()).toEqual([[]]);
+    expect(t.drops()).toEqual({ before_send_null: 1 });
   });
 });
 
@@ -299,7 +302,7 @@ describe('API methods (C4)', () => {
     t.ready();
     const flushed = () => {
       vi.advanceTimersByTime(2000);
-      return t.events().filter((e) => e.eventName !== 'sdk.health');
+      return t.events();
     };
     return { ...t, flushed };
   }
