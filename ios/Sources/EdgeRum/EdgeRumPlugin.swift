@@ -9,10 +9,14 @@ class EdgeRumPlugin: CDVPlugin {
     private var outbox: Outbox!
     private var sender: Sender!
     private var ticker: DispatchSourceTimer?
+    /// Serial: every state-changing action, so a disable can't interleave an append.
+    private let worker = DispatchQueue(label: "com.nathanclaire.rum.worker")
+    private var user: User!
+    private var session: Session!
+    private var consent: Consent!
+    private var subscriber: String?
     private var identity = ""
     private var sdkVersion = "unknown"
-    // ponytail: one id per process until session rotation lands (spec E1, issue 07).
-    private let sessionId = DeviceId.newId("session")
     private let processStartedAt = EdgeRumPlugin.processStartMs()
 
     override func pluginInitialize() {
@@ -28,14 +32,17 @@ class EdgeRumPlugin: CDVPlugin {
         }
         sender = Sender(outbox: outbox, health: health, sdkVersion: sdkVersion)
         sender.configure(apiKey: pref("EDGE_RUM_API_KEY"), url: pref("EDGE_RUM_ENDPOINT"))
-        // W3: app identity from Bundle.main, no override.
-        let info = Bundle.main.infoDictionary ?? [:]
-        identity = Sender.identityLine(
-            name: (info["CFBundleDisplayName"] ?? info["CFBundleName"]) as? String,
-            packageName: Bundle.main.bundleIdentifier,
-            version: info["CFBundleShortVersionString"] as? String,
-            buildNumber: info["CFBundleVersion"] as? String,
-            deviceId: DeviceId().resolve())
+        let deviceId = DeviceId()
+        identity = Self.identityLine(deviceId.resolve())
+        let user = User(defaults: .standard)
+        self.user = user
+        session = Session(defaults: .standard, health: health, sampleRate: Session.sampleRate(setting("EdgeRumSampleRate")),
+                          userId: { user.id })
+        consent = Consent(defaults: .standard,
+                          prefEnabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumEnabled", defaultValue: true),
+                          session: session, user: user, outbox: outbox, deviceId: deviceId)
+        // P7: opt-in mode arms nothing until enable().
+        if consent.enabled { worker.async { self.append(self.session.begin()) } }
 
         // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
         var ticks = 0
@@ -58,8 +65,20 @@ class EdgeRumPlugin: CDVPlugin {
         sender.trigger()
     }
 
+    /// W3: app identity from Bundle.main, no override.
+    private static func identityLine(_ deviceId: String) -> String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return Sender.identityLine(
+            name: (info["CFBundleDisplayName"] ?? info["CFBundleName"]) as? String,
+            packageName: Bundle.main.bundleIdentifier,
+            version: info["CFBundleShortVersionString"] as? String,
+            buildNumber: info["CFBundleVersion"] as? String,
+            deviceId: deviceId)
+    }
+
     private func setting(_ name: String) -> String? {
-        commandDelegate.settings.object(forKey: name) as? String
+        // cordova-ios stores preference names lowercased; this lookup lowercases too.
+        commandDelegate.settings.cordovaSetting(forKey: name) as? String
     }
 
     /// C1 plugin variable; the plugin.xml placeholder `unset` means missing (blank is handled by Sender).
@@ -86,46 +105,140 @@ class EdgeRumPlugin: CDVPlugin {
     }
 
     @objc private func willEnterForeground() {
-        sender.trigger()
+        worker.async {
+            // E1: a foreground after the idle timeout starts a new session.
+            let bookends = self.consent.enabled ? self.session.rotateIfIdle() : []
+            if !bookends.isEmpty {
+                self.append(bookends)
+                self.notify("session")
+            }
+            self.sender.trigger()
+        }
     }
 
     @objc(getState:)
     func getState(_ command: CDVInvokedUrlCommand) {
-        let state: [String: Any] = [
-            "enabled": commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumEnabled", defaultValue: true),
-            "sessionId": sessionId,
-            "sampled": true,
+        commandDelegate.send(CDVPluginResult(status: .ok, messageAs: state()), callbackId: command.callbackId)
+    }
+
+    private func state() -> [String: Any] {
+        let id = session.id
+        return [
+            "enabled": consent.enabled,
+            "sessionId": id ?? NSNull(),
+            "userId": user.id ?? NSNull(),
+            "sampled": id != nil && session.sampled,
             "configured": sender.configured,
             "sdkVersion": sdkVersion,
             "deviceStartedAt": processStartedAt,
         ]
-        commandDelegate.send(CDVPluginResult(status: .ok, messageAs: state), callbackId: command.callbackId)
+    }
+
+    /// A2 `subscribe`: `{ type, …state }` on the kept callback.
+    @objc(subscribe:)
+    func subscribe(_ command: CDVInvokedUrlCommand) {
+        worker.async { self.subscriber = command.callbackId }
+        let keep = CDVPluginResult(status: .noResult)
+        keep.setKeepCallbackAs(true)
+        commandDelegate.send(keep, callbackId: command.callbackId)
+    }
+
+    /// Worker queue only.
+    private func notify(_ type: String) {
+        guard let cb = subscriber else { return }
+        var s = state()
+        s["type"] = type
+        let r = CDVPluginResult(status: .ok, messageAs: s)
+        r.setKeepCallbackAs(true)
+        commandDelegate.send(r, callbackId: cb)
     }
 
     @objc(enqueue:)
     func enqueue(_ command: CDVInvokedUrlCommand) {
         let payload = command.arguments.first as? [String: Any]
-        commandDelegate.run(inBackground: {
+        worker.async {
             guard let events = payload?["events"] as? [Any] else {
                 self.reply(command, error: "events missing")
                 return
             }
-            let lines = events.compactMap { e -> String? in
-                guard e is [String: Any], JSONSerialization.isValidJSONObject(e),
-                      let data = try? JSONSerialization.data(withJSONObject: e, options: .withoutEscapingSlashes)
-                else { return nil }
-                return String(decoding: data, as: UTF8.self)
+            // P7: opt-in mode / disabled → nothing captured or buffered.
+            // Not counted on failure: JS counts a failed exec as a drop (A4, T8).
+            if !self.consent.enabled || self.admit(events.compactMap { $0 as? [String: Any] }) {
+                self.ok(command)
+            } else {
+                self.reply(command, error: "append failed")
             }
-            do {
-                try self.outbox.append(self.identity, lines)
-                self.commandDelegate.send(CDVPluginResult(status: .ok), callbackId: command.callbackId)
-            } catch {
-                // Not counted here: JS counts a failed exec as a drop (A4, T8).
-                NSLog("[EdgeRum] enqueue failed: \(error)")
-                self.reply(command, error: error.localizedDescription)
+        }
+    }
+
+    /// S5: every event goes through the session gate on its way into the outbox. Worker queue only.
+    private func admit(_ events: [[String: Any]]) -> Bool {
+        let before = session.id
+        let ok = append(session.admit(events))
+        if before != nil && before != session.id { notify("session") }
+        return ok
+    }
+
+    /// Worker queue only. - Returns: false when nothing was given or the append failed.
+    @discardableResult
+    private func append(_ lines: [String]) -> Bool {
+        guard !lines.isEmpty else { return true }
+        do {
+            try outbox.append(identity, lines)
+            sender.trigger()
+            return true
+        } catch {
+            NSLog("[EdgeRum] append failed: \(error)")
+            return false
+        }
+    }
+
+    /// P6: persisted traits; a trait change becomes one `user.profile.update`.
+    @objc(identify:)
+    func identify(_ command: CDVInvokedUrlCommand) {
+        let traits = command.arguments.first as? [String: Any]
+        worker.async {
+            if let traits, self.consent.enabled, let update = self.user.identify(traits) { _ = self.admit([update]) }
+            self.ok(command)
+        }
+    }
+
+    @objc(clearUser:)
+    func clearUser(_ command: CDVInvokedUrlCommand) {
+        worker.async {
+            self.user.clear()
+            self.ok(command)
+        }
+    }
+
+    @objc(enable:)
+    func enable(_ command: CDVInvokedUrlCommand) {
+        worker.async { self.setEnabled(true, command) }
+    }
+
+    @objc(disable:)
+    func disable(_ command: CDVInvokedUrlCommand) {
+        worker.async { self.setEnabled(false, command) }
+    }
+
+    private func setEnabled(_ on: Bool, _ command: CDVInvokedUrlCommand) {
+        let was = consent.enabled
+        append(consent.setEnabled(on))
+        if was != on { notify("enabled") }
+        ok(command)
+    }
+
+    /// P7: new device_id and session, user and outbox cleared; enabled state untouched.
+    @objc(reset:)
+    func reset(_ command: CDVInvokedUrlCommand) {
+        worker.async {
+            self.identity = Self.identityLine(self.consent.reset())
+            if self.consent.enabled {
+                self.append(self.session.restart())
+                self.notify("session")
             }
-            self.sender.trigger()
-        })
+            self.ok(command)
+        }
     }
 
     @objc(configure:)
@@ -135,6 +248,10 @@ class EdgeRumPlugin: CDVPlugin {
             sender.configure(apiKey: opts["apiKey"] as? String, url: opts["endpoint"] as? String)
             sender.trigger()
         }
+        commandDelegate.send(CDVPluginResult(status: .ok), callbackId: command.callbackId)
+    }
+
+    private func ok(_ command: CDVInvokedUrlCommand) {
         commandDelegate.send(CDVPluginResult(status: .ok), callbackId: command.callbackId)
     }
 

@@ -108,6 +108,14 @@ final class Outbox {
         enforceCaps()
     }
 
+    /// P7 `disable()` / `reset()`: deletes every unsent event. Not counted as a drop.
+    func clear() {
+        lock.lock(); defer { lock.unlock() }
+        try? fm.removeItem(at: open)
+        openCount = 0
+        for f in sealed() { try? fm.removeItem(at: f) }
+    }
+
     /// Sealed segments, oldest first (name = seal time + per-process sequence).
     func sealed() -> [URL] {
         let names = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []

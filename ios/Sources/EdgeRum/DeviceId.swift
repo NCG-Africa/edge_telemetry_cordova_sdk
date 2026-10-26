@@ -23,7 +23,12 @@ struct DeviceId {
     }
 
     func resolve() -> String {
-        if let id = valid(try? keychain.read()) ?? valid(defaults.string(forKey: Self.fallbackKey)) { return id }
+        valid(try? keychain.read()) ?? valid(defaults.string(forKey: Self.fallbackKey)) ?? rotate()
+    }
+
+    /// First launch and P7 `reset()`: a new id, stored.
+    // ponytail: on reset, a failed Keychain write leaves the old Keychain row winning next launch; add a delete to SecureStore if that bites.
+    func rotate() -> String {
         let id = Self.newId("device")
         do {
             try keychain.write(id)
