@@ -27,6 +27,20 @@ jobs:
       - run: npm run check:terms
       - run: npm run pack-audit
 
+  android-unit:
+    # Spec Q3: JUnit + MockWebServer over the plain-Java native core.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.8.2'
+      - run: gradle -p android test
+
   fixture-android:
     runs-on: ubuntu-latest
     steps:

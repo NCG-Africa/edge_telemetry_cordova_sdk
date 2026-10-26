@@ -44,6 +44,8 @@
     <preference name="EdgeRumDevicereadyTimeoutMs" value="$EDGE_RUM_DEVICEREADY_TIMEOUT_MS" />
     <preference name="EdgeRumSampleRate" value="$EDGE_RUM_SAMPLE_RATE" />
     <preference name="EdgeRumDebug" value="$EDGE_RUM_DEBUG" />
+    <!-- Spec V3: native reads sdk.version from here; scripts/sync-version.mjs keeps it = package.json. -->
+    <preference name="EdgeRumSdkVersion" value="1.0.0-dev" />
   </config-file>
 
   <js-module src="www/edge-rum.js" name="EdgeRum">
@@ -58,6 +60,14 @@
       </feature>
     </config-file>
     <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/EdgeRumPlugin.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Health.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/IdGenerator.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Outbox.java"
+                 target-dir="src/com/nathanclaire/rum/cordova" />
+    <source-file src="android/src/main/java/com/nathanclaire/rum/cordova/Sender.java"
                  target-dir="src/com/nathanclaire/rum/cordova" />
   </platform>
 

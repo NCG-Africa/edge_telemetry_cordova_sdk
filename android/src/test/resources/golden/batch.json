@@ -1,0 +1,30 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:02.000Z",
+  "batch_size": 2,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": { "name": "cordova", "version": "1.0.0" },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "android",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "navigation",
+      "timestamp": "2026-10-26T10:00:00.000Z",
+      "attributes": { "navigation.to_screen": "/home" }
+    },
+    {
+      "type": "metric",
+      "metricName": "LCP",
+      "value": 812.5,
+      "timestamp": "2026-10-26T10:00:01.000Z",
+      "attributes": {}
+    }
+  ]
+}

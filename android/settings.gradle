@@ -1,0 +1,3 @@
+// JVM-only harness for spec Q3 Android unit tests. Not shipped (package.json `files`) and not
+// referenced from plugin.xml, so Cordova builds ignore it.
+rootProject.name = 'edge-rum-android-unit'

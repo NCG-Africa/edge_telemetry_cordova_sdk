@@ -1,7 +1,181 @@
 package com.nathanclaire.rum.cordova;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Process;
+import android.os.SystemClock;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
+import org.apache.cordova.LOG;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /** Native core entry point (spec A1). Loaded at launch via onload=true. */
 public class EdgeRumPlugin extends CordovaPlugin {
+    private static final String TAG = "EdgeRum";
+
+    private Outbox outbox;
+    private Sender sender;
+    private ScheduledExecutorService ticker;
+    private String identity;
+    private String sdkVersion;
+    // ponytail: one id per process until session rotation lands (spec E1, issue 03).
+    private final String sessionId = IdGenerator.sessionId();
+    private final long processStartedAt =
+            System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime());
+
+    @Override
+    protected void pluginInitialize() {
+        Context ctx = cordova.getContext();
+        File dir = new File(ctx.getFilesDir(), "edge_rum");
+        Health health = new Health(dir);
+        outbox = new Outbox(dir, System::currentTimeMillis, health);
+        sdkVersion = preferences.getString("EdgeRumSdkVersion", null);
+        if (sdkVersion == null) {
+            // plugin.xml always writes it; missing means a hand-edited config.xml.
+            LOG.w(TAG, "EdgeRumSdkVersion preference missing; reinstall the plugin");
+            sdkVersion = "unknown";
+        }
+        sender = new Sender(outbox, health, sdkVersion);
+        sender.configure(pref("EDGE_RUM_API_KEY"), pref("EDGE_RUM_ENDPOINT"));
+        identity = identityLine(ctx, new IdGenerator(prefsStore(ctx)).deviceId());
+
+        ticker = Executors.newSingleThreadScheduledExecutor();
+        // T3: 30 s after the first event, within a second.
+        ticker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
+        // T6: 30 s retry tick for parked segments.
+        ticker.scheduleWithFixedDelay(sender::trigger, 30, 30, TimeUnit.SECONDS);
+        sender.trigger();
+    }
+
+    /** C1 plugin variable; the plugin.xml placeholder `unset` means missing (blank is handled by Sender). */
+    private String pref(String name) {
+        String v = preferences.getString(name, null);
+        return "unset".equals(v) ? null : v;
+    }
+
+    private static IdGenerator.Store prefsStore(Context ctx) {
+        SharedPreferences prefs = ctx.getSharedPreferences("edge_rum_cordova_ids", Context.MODE_PRIVATE);
+        return new IdGenerator.Store() {
+            @Override public String get(String key) {
+                return prefs.getString(key, null);
+            }
+
+            @Override public boolean put(String key, String value) {
+                return prefs.edit().putString(key, value).commit();
+            }
+        };
+    }
+
+    /** W3: app identity from PackageManager, no override. */
+    private static String identityLine(Context ctx, String deviceId) {
+        PackageManager pm = ctx.getPackageManager();
+        String version = null;
+        String build = null;
+        try {
+            PackageInfo info = pm.getPackageInfo(ctx.getPackageName(), 0);
+            version = info.versionName;
+            build = String.valueOf(Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Own package; unreachable in practice. Version keys stay omitted (R15).
+        }
+        try {
+            return Sender.identityLine(ctx.getApplicationInfo().loadLabel(pm).toString(), ctx.getPackageName(),
+                    version, build, deviceId);
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Override
+    public boolean execute(String action, JSONArray args, CallbackContext cb) throws JSONException {
+        switch (action) {
+            case "getState":
+                cb.success(new JSONObject()
+                        .put("enabled", preferences.getBoolean("EdgeRumEnabled", true))
+                        .put("sessionId", sessionId)
+                        .put("sampled", true)
+                        .put("configured", sender.configured())
+                        .put("sdkVersion", sdkVersion)
+                        .put("deviceStartedAt", processStartedAt));
+                return true;
+            case "enqueue":
+                JSONObject payload = args.optJSONObject(0);
+                cordova.getThreadPool().execute(() -> enqueue(payload, cb));
+                return true;
+            case "configure":
+                JSONObject opts = args.optJSONObject(0);
+                if (opts != null) {
+                    // From init(); runtime only, never persisted (C1).
+                    sender.configure(opts.optString("apiKey", null), opts.optString("endpoint", null));
+                    sender.trigger();
+                }
+                cb.success();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void enqueue(JSONObject payload, CallbackContext cb) {
+        JSONArray events = payload == null ? null : payload.optJSONArray("events");
+        if (events == null) {
+            cb.error("events missing");
+            return;
+        }
+        List<String> lines = new ArrayList<>(events.length());
+        for (int i = 0; i < events.length(); i++) {
+            JSONObject e = events.optJSONObject(i);
+            if (e != null) lines.add(e.toString());
+        }
+        try {
+            outbox.append(identity, lines);
+            cb.success();
+        } catch (Exception e) {
+            // Not counted here: JS counts a failed exec as a drop (A4, T8).
+            LOG.w(TAG, "enqueue failed", e);
+            cb.error(String.valueOf(e.getMessage()));
+        }
+        sender.trigger();
+    }
+
+    @Override
+    public void onPause(boolean multitasking) {
+        flush();
+    }
+
+    @Override
+    public void onStop() {
+        flush();
+    }
+
+    @Override
+    public void onResume(boolean multitasking) {
+        sender.trigger();
+    }
+
+    @Override
+    public void onDestroy() {
+        if (ticker != null) ticker.shutdownNow();
+        if (sender != null) sender.shutdown();
+    }
+
+    /** T3: background seals the open segment and sends; off the UI thread (caps may read files). */
+    private void flush() {
+        if (ticker == null) return;
+        ticker.execute(() -> {
+            outbox.seal();
+            sender.trigger();
+        });
+    }
 }
