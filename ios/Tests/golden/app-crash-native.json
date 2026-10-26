@@ -1,0 +1,38 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:00:03.000Z",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_ios",
+  "sdk": { "name": "cordova", "version": "1.0.0" },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "ios",
+    "version": "1.4.1",
+    "build_number": "141"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "app.crash",
+      "timestamp": "2026-10-26T10:00:01.500Z",
+      "attributes": {
+        "message": "EXC_BAD_ACCESS, code 0x1, subcode 0x0",
+        "stacktrace": "Fixture +0x1a2c -[Cart total]\nlibsystem_c.dylib +0x39f10\n0xdead",
+        "exception_type": "EXC_BAD_ACCESS",
+        "cause": "mach exception 1",
+        "error_context": "Fixture +0x1a2c",
+        "crash_thread": "main",
+        "crash_is_main_thread": true,
+        "is_fatal": true,
+        "handled": false,
+        "screen_name": "/checkout",
+        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"}]",
+        "crash.binary_images": "[{\"base\":\"0x102a40000\",\"name\":\"Fixture\",\"uuid\":\"4f6e8a0b1c2d3e4f5a6b7c8d9e0f1a2b\"},{\"base\":\"0x1a0f00000\",\"name\":\"libsystem_c.dylib\",\"uuid\":\"9a8b7c6d5e4f30211203f4e5d6c7b8a9\"}]",
+        "session.id": "session_1",
+        "user.id": "u1"
+      }
+    }
+  ]
+}

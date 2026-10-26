@@ -18,10 +18,13 @@ let package = Package(
         .target(
             name: "EdgeRum",
             dependencies: [
+                "EdgeRumCrash",
                 .product(name: "Cordova", package: "cordova-ios", condition: .when(platforms: [.iOS]))
             ],
             path: "ios/Sources/EdgeRum"
-        )
+        ),
+        // Spec E12: signal + Mach exception handlers, in C so the crash path stays async-signal-safe.
+        .target(name: "EdgeRumCrash", path: "ios/Sources/EdgeRumCrash")
     ]
 )
 

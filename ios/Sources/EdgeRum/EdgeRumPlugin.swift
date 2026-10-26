@@ -1,6 +1,7 @@
 // iOS only: on the macOS host (XCTest) the native core builds without Cordova.
 #if canImport(Cordova)
 import Cordova
+import EdgeRumCrash
 import UIKit
 
 /// Native core entry point (spec A1). Loaded at launch via onload=true.
@@ -14,6 +15,10 @@ class EdgeRumPlugin: CDVPlugin {
     private var user: User!
     private var session: Session!
     private var consent: Consent!
+    private var crash: Crash!
+    private var watchdog: Watchdog!
+    /// Watchdog is foreground only (E15). Main thread only.
+    private var foreground = false
     private var subscriber: String?
     private var identity = ""
     private var sdkVersion = "unknown"
@@ -41,8 +46,26 @@ class EdgeRumPlugin: CDVPlugin {
         consent = Consent(defaults: .standard,
                           prefEnabled: commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumEnabled", defaultValue: true),
                           session: session, user: user, outbox: outbox, deviceId: deviceId)
-        // P7: opt-in mode arms nothing until enable().
-        if consent.enabled { worker.async { self.append(self.session.begin()) } }
+        crash = Crash(dir: dir)
+        let hangMs = commandDelegate.settings.cordovaBoolSetting(forKey: "EdgeRumHang", defaultValue: true)
+            ? Int64(setting("EdgeRumHangTimeoutMs") ?? "") ?? 2000 : 0
+        watchdog = Watchdog(hangMs: hangMs) { [weak self] ms in
+            // Read now, while main is still stuck; recorded on the worker.
+            let frames = Crash.mainStack()
+            self?.worker.async { self?.solo(self?.crash.hang(durationMs: ms, frames: frames)) }
+        }
+        foreground = UIApplication.shared.applicationState != .background
+
+        worker.async {
+            // T4: last launch's crash, under the identity it crashed with. Gone either way.
+            if let p = self.crash.takeReport(), self.consent.enabled { self.writeSolo(p.identity, p.event) }
+            // P7: opt-in mode arms nothing until enable().
+            guard self.consent.enabled else { return }
+            self.append(self.session.begin())
+            // Armed after the context exists, so a crash always has one to replay under.
+            self.saveCrashContext()
+            self.arm()
+        }
 
         // T3: 30 s after the first event, within a second. T6: 30 s retry tick for parked segments.
         var ticks = 0
@@ -87,8 +110,43 @@ class EdgeRumPlugin: CDVPlugin {
         return v == "unset" ? nil : v
     }
 
+    /// E12, E15: crash handlers once per process (main thread: its alternate signal stack); the
+    /// watchdog while in the foreground. Any queue.
+    private func arm() {
+        let path = crash.reportPath
+        DispatchQueue.main.async {
+            edge_rum_crash_install(path)
+            if self.foreground { self.watchdog.start() }
+        }
+    }
+
+    /// T4: a native crash / hang record becomes its own segment under the running build's
+    /// identity, after the session gate (a hang follows the roll, S2). Worker queue only.
+    private func solo(_ event: [String: Any]?) {
+        guard let event, consent.enabled else { return }
+        let before = session.id
+        for line in session.admit([event]) { writeSolo(identity, line) }
+        if before != nil && before != session.id { notify("session") }
+    }
+
+    private func writeSolo(_ identity: String, _ line: String) {
+        do {
+            try outbox.writeSolo(identity, line)
+            sender.trigger()
+        } catch {
+            NSLog("[EdgeRum] solo segment failed: \(error)")
+        }
+    }
+
+    /// What a later crash report replays under (T4). Worker queue only.
+    private func saveCrashContext() {
+        crash.saveContext(identity: identity, sessionId: session.id, userId: user.id)
+    }
+
     /// T3: background seals the open segment and sends, inside a background task.
     @objc private func didEnterBackground() {
+        foreground = false
+        watchdog.stop()
         let app = UIApplication.shared
         var task = UIBackgroundTaskIdentifier.invalid
         // Main thread only: the expiration handler runs there and must end the task before returning.
@@ -105,6 +163,8 @@ class EdgeRumPlugin: CDVPlugin {
     }
 
     @objc private func willEnterForeground() {
+        foreground = true
+        if consent.enabled { watchdog.start() }
         worker.async {
             // E1: a foreground after the idle timeout starts a new session.
             let bookends = self.consent.enabled ? self.session.rotateIfIdle() : []
@@ -164,7 +224,11 @@ class EdgeRumPlugin: CDVPlugin {
             }
             // P7: opt-in mode / disabled → nothing captured or buffered.
             // Not counted on failure: JS counts a failed exec as a drop (A4, T8).
-            if !self.consent.enabled || self.admit(events.compactMap { $0 as? [String: Any] }) {
+            guard self.consent.enabled else { return self.ok(command) }
+            if let payload { self.crash.mirror(payload) }
+            let ok = self.admit(events.compactMap { $0 as? [String: Any] })
+            self.saveCrashContext()
+            if ok {
                 self.ok(command)
             } else {
                 self.reply(command, error: "append failed")
@@ -225,6 +289,13 @@ class EdgeRumPlugin: CDVPlugin {
     private func setEnabled(_ on: Bool, _ command: CDVInvokedUrlCommand) {
         let was = consent.enabled
         append(consent.setEnabled(on))
+        if on {
+            saveCrashContext()
+            arm()
+        } else {
+            DispatchQueue.main.async { self.watchdog.stop() }
+            crash.clear()
+        }
         if was != on { notify("enabled") }
         ok(command)
     }
@@ -234,8 +305,10 @@ class EdgeRumPlugin: CDVPlugin {
     func reset(_ command: CDVInvokedUrlCommand) {
         worker.async {
             self.identity = Self.identityLine(self.consent.reset())
+            self.crash.clear()
             if self.consent.enabled {
                 self.append(self.session.restart())
+                self.saveCrashContext()
                 self.notify("session")
             }
             self.ok(command)
