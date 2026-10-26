@@ -1,0 +1,36 @@
+{
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "build_number": "142",
+    "version": "1.4.2",
+    "platform": "android"
+  },
+  "contract_version": "4.0.0",
+  "batch_size": 1,
+  "device_id": "device_1700000000000_0123456789abcdef_android",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "type": "telemetry_batch",
+  "events": [
+    {
+      "eventName": "app.start",
+      "attributes": {
+        "app.start.load_ms": 600,
+        "app.start.dom_content_loaded_ms": 450,
+        "app.start.type": "cold",
+        "app.start.duration_ms": 1500,
+        "app.start.deviceready_ms": 700,
+        "app.start.mark_ready_ms": 1500,
+        "app.start.response_end_ms": 300,
+        "session.id": "session_1",
+        "app.start.webview_created_ms": 120
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:01.500Z"
+    }
+  ],
+  "timestamp": "2026-10-26T10:00:02.000Z"
+}

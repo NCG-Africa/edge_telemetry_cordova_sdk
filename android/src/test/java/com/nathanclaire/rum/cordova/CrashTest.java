@@ -209,4 +209,21 @@ public class CrashTest {
             out.write(s.getBytes(StandardCharsets.UTF_8));
         }
     }
+
+    @Test public void webViewTerminatedIsFatalWithCrumbsAndScreen() throws Exception {
+        crash.mirror(payload(3, "/checkout"));
+        JSONObject a = crash.webViewTerminated("oom_killed").getJSONObject("attributes");
+        assertEquals("WebViewTerminated", a.getString("cause"));
+        assertEquals("oom_killed", a.getString("webview.reason"));
+        assertEquals("callback", a.getString("webview.detected_by"));
+        assertEquals("/checkout", a.getString("screen_name"));
+        assertEquals(3, new JSONArray(a.getString("crash.breadcrumbs")).length());
+        assertTrue(a.getBoolean("is_fatal"));
+    }
+
+    @Test public void webViewTerminatedGoldenBatch() throws Exception {
+        crash.mirror(payload(1, "/checkout"));
+        solo(crash.webViewTerminated("crash"), SenderTest.IDENTITY);
+        SenderTest.assertGolden("app-crash-webview.json", relaunchAndSend().get(0));
+    }
 }

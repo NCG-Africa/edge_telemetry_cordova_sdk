@@ -17,7 +17,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Spec A3, E12, E14, E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.anr` /
+ * Spec A3, E12–E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.anr` /
  * `app.hang` records built from it. JVM crashes are written in-process; an NDK crash leaves a
  * plain-text report (`edge_rum_ndk.c`) that {@link #takeNdk} turns into an event next launch,
  * under the identity, session and breadcrumbs saved by {@link #saveContext} before it died.
@@ -116,6 +116,22 @@ final class Crash {
                 .put("error_context", cap(jvmContext(stack), MAX_CONTEXT))
                 .put("crash_thread", thread.getName())
                 .put("crash_is_main_thread", thread == main);
+        return event("app.crash", clock.getAsLong(), fatal(a));
+    }
+
+    /**
+     * E13: WebView renderer death (`onRenderProcessGone`), fatal, same path as a JVM crash.
+     * `reason` is `crash` or `oom_killed` (the system reclaimed it).
+     */
+    JSONObject webViewTerminated(String reason) throws JSONException {
+        JSONObject a = new JSONObject()
+                .put("message", "WebView renderer process gone (" + reason + ")")
+                .put("exception_type", "WebViewTerminated")
+                .put("cause", "WebViewTerminated")
+                .put("webview.reason", reason)
+                .put("webview.detected_by", "callback")
+                .put("crash_thread", main.getName())
+                .put("crash_is_main_thread", true);
         return event("app.crash", clock.getAsLong(), fatal(a));
     }
 
@@ -254,7 +270,7 @@ final class Crash {
         return screen;
     }
 
-    private static JSONObject event(String name, long at, JSONObject attrs) throws JSONException {
+    static JSONObject event(String name, long at, JSONObject attrs) throws JSONException {
         return new JSONObject()
                 .put("type", "event")
                 .put("eventName", name)

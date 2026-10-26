@@ -52,6 +52,9 @@ final class Session {
     private final Supplier<String> newId;
     private final Supplier<String> userId;
 
+    /** E32: device / network context stamped on every event; an event's own key wins. */
+    private Supplier<JSONObject> context = JSONObject::new;
+
     private String id;
     private long startedAt;
     private long lastActivityAt;
@@ -72,6 +75,10 @@ final class Session {
         this.roll = roll;
         this.newId = newId;
         this.userId = userId;
+    }
+
+    synchronized void context(Supplier<JSONObject> context) {
+        this.context = context;
     }
 
     synchronized String id() {
@@ -200,6 +207,12 @@ final class Session {
     }
 
     private JSONObject stamp(JSONObject attrs, String sessionId) throws JSONException {
+        JSONObject ctx = context.get();
+        JSONArray keys = ctx.names();
+        for (int i = 0; keys != null && i < keys.length(); i++) {
+            String k = keys.getString(i);
+            if (!attrs.has(k)) attrs.put(k, ctx.get(k));
+        }
         attrs.put("session.id", sessionId);
         String user = userId.get();
         if (user != null) attrs.put("user.id", user);
