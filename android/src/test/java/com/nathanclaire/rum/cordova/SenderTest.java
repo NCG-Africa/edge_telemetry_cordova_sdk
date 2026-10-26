@@ -209,11 +209,38 @@ public class SenderTest {
     }
 
     @Test public void holdsSegmentsUntilConfigured() throws Exception {
-        sender.configure(null, null);
+        sender = new Sender(outbox, health, "1.0.0");
         sealedBatch();
+        sender.configure(null, server.url("/telemetry").toString());
         sender.drain();
         assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS));
         assertEquals(1, outbox.sealed().size());
+    }
+
+    @Test public void configureKeepsTheValueItIsNotGiven() throws Exception {
+        sender.configure("  ", null);
+        sender.configure(" edge_new ", "");
+        sealedBatch();
+        server.enqueue(new MockResponse().setResponseCode(200));
+        sender.drain();
+        RecordedRequest req = server.takeRequest();
+        assertEquals("edge_new", req.getHeader("X-API-Key"));
+        assertEquals("/telemetry", req.getPath());
+    }
+
+    @Test public void identityLineOmitsUnknownVersion() throws Exception {
+        JSONObject id = new JSONObject(Sender.identityLine("App", "com.x", null, null, "d1"));
+        assertEquals("{\"name\":\"App\",\"package_name\":\"com.x\",\"platform\":\"android\"}", id.getJSONObject("app").toString());
+        assertEquals("d1", id.getString("device_id"));
+    }
+
+    @Test public void corruptIdentityIsDroppedAndCounted() throws Exception {
+        outbox.append("{not json", EVENTS);
+        outbox.seal();
+        sender.drain();
+        assertEquals(0, server.getRequestCount());
+        assertTrue(outbox.sealed().isEmpty());
+        assertEquals(Collections.singletonMap("events_dropped.corrupt", 2L), health.snapshot());
     }
 
     @Test public void triggerRunsOffTheCallerThread() throws Exception {

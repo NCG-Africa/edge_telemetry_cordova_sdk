@@ -29,6 +29,7 @@ import org.json.JSONObject;
  */
 final class Sender {
     static final String CONTRACT_VERSION = "4.0.0";
+    /** T6: delays before the 3 retries that follow a failed first send. */
     static final long[] RETRY_MS = {1_000, 4_000, 16_000};
     /** Backoff of a parked segment; matches the 30 s tick that retries it (T6). */
     static final long PARK_MS = 30_000;
@@ -46,8 +47,22 @@ final class Sender {
     private final Map<String, Long> parkedUntil = new HashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean pending = new AtomicBoolean();
-    private volatile String apiKey;
-    private volatile String endpoint;
+    private volatile Target target = new Target(null, null);
+
+    /** C1: key and URL travel together, so a send always reads a matching pair. */
+    private static final class Target {
+        final String apiKey;
+        final String url;
+
+        Target(String apiKey, String url) {
+            this.apiKey = apiKey;
+            this.url = url;
+        }
+
+        boolean ready() {
+            return apiKey != null && url != null;
+        }
+    }
 
     Sender(Outbox outbox, Health health, String sdkVersion) {
         this(outbox, health, sdkVersion, System::currentTimeMillis, Thread::sleep, RETRY_MS);
@@ -66,14 +81,32 @@ final class Sender {
         executor.shutdownNow();
     }
 
-    /** Missing key or endpoint holds segments on disk until both are known (C1). */
-    void configure(String apiKey, String endpoint) {
-        this.apiKey = apiKey;
-        this.endpoint = endpoint;
+    /**
+     * Sets whichever of key / URL is non-blank; the other keeps its value. Segments stay on disk
+     * until both are known (C1).
+     */
+    synchronized void configure(String apiKey, String url) {
+        target = new Target(orElse(apiKey, target.apiKey), orElse(url, target.url));
+    }
+
+    private static String orElse(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
     }
 
     boolean configured() {
-        return apiKey != null && endpoint != null;
+        return target.ready();
+    }
+
+    /** W3 + T4: the identity line frozen into each segment; null values omitted (R15). */
+    static String identityLine(String name, String packageName, String version, String buildNumber, String deviceId)
+            throws JSONException {
+        JSONObject app = new JSONObject()
+                .put("name", name)
+                .put("package_name", packageName)
+                .put("platform", "android")
+                .put("version", version)
+                .put("build_number", buildNumber);
+        return new JSONObject().put("app", app).put("device_id", deviceId).toString();
     }
 
     /** Schedules a drain on the sender thread; triggers while one is queued coalesce. */
@@ -88,21 +121,25 @@ final class Sender {
 
     /** Sends every sealed segment not inside its park backoff; stops at the first one it parks. */
     void drain() {
-        if (!configured()) return;
+        Target t = target;
+        if (!t.ready()) return;
         for (File f : outbox.sealed()) {
             Long until = parkedUntil.get(f.getName());
             if (until != null && clock.getAsLong() < until) continue;
+            outbox.sending(f);
             try {
-                if (!send(f)) return;
+                if (!send(f, t)) return;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
+            } finally {
+                outbox.sending(null);
             }
         }
     }
 
     /** @return false when the segment was parked. */
-    private boolean send(File f) throws InterruptedException {
+    private boolean send(File f, Target t) throws InterruptedException {
         Outbox.Segment seg;
         try {
             seg = outbox.read(f);
@@ -113,14 +150,25 @@ final class Sender {
             f.delete();
             return true;
         }
+        JSONObject identity;
+        try {
+            identity = new JSONObject(seg.identity);
+            identity.getString("device_id");
+            identity.getJSONObject("app");
+        } catch (JSONException e) {
+            f.delete();
+            health.count("corrupt", seg.events.size());
+            return true;
+        }
         Map<String, Long> drops = health.snapshot();
         int queueDepth = outbox.sealed().size();
         for (int attempt = 0; ; attempt++) {
             int status;
             long retryAfterMs = 0;
             try {
-                byte[] body = body(seg, drops, queueDepth, clock.getAsLong()).getBytes(StandardCharsets.UTF_8);
-                HttpURLConnection c = post(gzip(body));
+                byte[] body = body(identity, seg.events, drops, queueDepth, clock.getAsLong())
+                        .getBytes(StandardCharsets.UTF_8);
+                HttpURLConnection c = post(gzip(body), t);
                 try {
                     status = c.getResponseCode();
                     retryAfterMs = retryAfterMs(c.getHeaderField("Retry-After"));
@@ -150,8 +198,8 @@ final class Sender {
         }
     }
 
-    private HttpURLConnection post(byte[] gzipped) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(endpoint).openConnection();
+    private HttpURLConnection post(byte[] gzipped, Target t) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(t.url).openConnection();
         c.setRequestMethod("POST");
         c.setConnectTimeout(15_000);
         c.setReadTimeout(15_000);
@@ -159,7 +207,7 @@ final class Sender {
         c.setFixedLengthStreamingMode(gzipped.length);
         c.setRequestProperty("Content-Type", "application/json");
         c.setRequestProperty("Content-Encoding", "gzip");
-        c.setRequestProperty("X-API-Key", apiKey);
+        c.setRequestProperty("X-API-Key", t.apiKey);
         try (OutputStream out = c.getOutputStream()) {
             out.write(gzipped);
         }
@@ -170,11 +218,9 @@ final class Sender {
      * Contract-4 envelope, closed at 8 keys (R3). Identity is the segment's frozen first line
      * (T4); `sdk` and `contract_version` are current; `timestamp` is this attempt's (R13).
      */
-    private String body(Outbox.Segment seg, Map<String, Long> drops, int queueDepth, long now)
+    private String body(JSONObject identity, List<String> events, Map<String, Long> drops, int queueDepth, long now)
             throws JSONException {
-        JSONObject identity = new JSONObject(seg.identity);
         String timestamp = rfc3339(now);
-        List<String> events = seg.events;
         StringBuilder sb = new StringBuilder(256 + events.size() * 256)
                 .append("{\"type\":\"telemetry_batch\",\"contract_version\":\"").append(CONTRACT_VERSION)
                 .append("\",\"timestamp\":").append(JSONObject.quote(timestamp))

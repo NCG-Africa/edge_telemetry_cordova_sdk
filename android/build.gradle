@@ -9,8 +9,8 @@ repositories {
 sourceSets {
     main {
         java {
-            // Android/Cordova-bound classes; the core they wire up is plain Java.
-            exclude '**/EdgeRumPlugin.java', '**/IdGenerator.java'
+            // The only Android/Cordova-bound class; the core it wires up is plain Java.
+            exclude '**/EdgeRumPlugin.java'
         }
     }
 }

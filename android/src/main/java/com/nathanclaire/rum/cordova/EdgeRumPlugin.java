@@ -1,6 +1,7 @@
 package com.nathanclaire.rum.cordova;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -27,8 +28,6 @@ public class EdgeRumPlugin extends CordovaPlugin {
     private Sender sender;
     private ScheduledExecutorService ticker;
     private String identity;
-    private String apiKey;
-    private String endpoint;
     private String sdkVersion;
     // ponytail: one id per process until session rotation lands (spec E1, issue 03).
     private final String sessionId = IdGenerator.sessionId();
@@ -41,12 +40,15 @@ public class EdgeRumPlugin extends CordovaPlugin {
         File dir = new File(ctx.getFilesDir(), "edge_rum");
         Health health = new Health(dir);
         outbox = new Outbox(dir, System::currentTimeMillis, health);
-        sdkVersion = preferences.getString("EdgeRumSdkVersion", "");
+        sdkVersion = preferences.getString("EdgeRumSdkVersion", null);
+        if (sdkVersion == null) {
+            // plugin.xml always writes it; missing means a hand-edited config.xml.
+            LOG.w(TAG, "EdgeRumSdkVersion preference missing; reinstall the plugin");
+            sdkVersion = "unknown";
+        }
         sender = new Sender(outbox, health, sdkVersion);
-        apiKey = pref("EDGE_RUM_API_KEY");
-        endpoint = pref("EDGE_RUM_ENDPOINT");
-        sender.configure(apiKey, endpoint);
-        identity = identity(ctx, new IdGenerator(ctx).deviceId());
+        sender.configure(pref("EDGE_RUM_API_KEY"), pref("EDGE_RUM_ENDPOINT"));
+        identity = identityLine(ctx, new IdGenerator(prefsStore(ctx)).deviceId());
 
         ticker = Executors.newSingleThreadScheduledExecutor();
         // T3: 30 s after the first event, within a second.
@@ -56,29 +58,40 @@ public class EdgeRumPlugin extends CordovaPlugin {
         sender.trigger();
     }
 
-    /** C1 plugin variable; the plugin.xml placeholder `unset` (or blank) means missing. */
+    /** C1 plugin variable; the plugin.xml placeholder `unset` means missing (blank is handled by Sender). */
     private String pref(String name) {
         String v = preferences.getString(name, null);
-        return v == null || v.trim().isEmpty() || v.equals("unset") ? null : v.trim();
+        return "unset".equals(v) ? null : v;
     }
 
-    /** W3 + T4: the identity line frozen into each segment. Unknown values omitted (R15). */
-    private static String identity(Context ctx, String deviceId) {
-        JSONObject app = new JSONObject();
-        try {
-            PackageManager pm = ctx.getPackageManager();
-            app.put("name", ctx.getApplicationInfo().loadLabel(pm).toString());
-            app.put("package_name", ctx.getPackageName());
-            app.put("platform", "android");
-            try {
-                PackageInfo info = pm.getPackageInfo(ctx.getPackageName(), 0);
-                app.put("version", info.versionName);
-                long code = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
-                app.put("build_number", String.valueOf(code));
-            } catch (PackageManager.NameNotFoundException ignored) {
-                // Own package; unreachable in practice. Version keys stay omitted.
+    private static IdGenerator.Store prefsStore(Context ctx) {
+        SharedPreferences prefs = ctx.getSharedPreferences("edge_rum_cordova_ids", Context.MODE_PRIVATE);
+        return new IdGenerator.Store() {
+            @Override public String get(String key) {
+                return prefs.getString(key, null);
             }
-            return new JSONObject().put("app", app).put("device_id", deviceId).toString();
+
+            @Override public boolean put(String key, String value) {
+                return prefs.edit().putString(key, value).commit();
+            }
+        };
+    }
+
+    /** W3: app identity from PackageManager, no override. */
+    private static String identityLine(Context ctx, String deviceId) {
+        PackageManager pm = ctx.getPackageManager();
+        String version = null;
+        String build = null;
+        try {
+            PackageInfo info = pm.getPackageInfo(ctx.getPackageName(), 0);
+            version = info.versionName;
+            build = String.valueOf(Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Own package; unreachable in practice. Version keys stay omitted (R15).
+        }
+        try {
+            return Sender.identityLine(ctx.getApplicationInfo().loadLabel(pm).toString(), ctx.getPackageName(),
+                    version, build, deviceId);
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
@@ -104,11 +117,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
                 JSONObject opts = args.optJSONObject(0);
                 if (opts != null) {
                     // From init(); runtime only, never persisted (C1).
-                    String key = opts.optString("apiKey", "").trim();
-                    String url = opts.optString("endpoint", "").trim();
-                    if (!key.isEmpty()) apiKey = key;
-                    if (!url.isEmpty()) endpoint = url;
-                    sender.configure(apiKey, endpoint);
+                    sender.configure(opts.optString("apiKey", null), opts.optString("endpoint", null));
                     sender.trigger();
                 }
                 cb.success();
@@ -133,6 +142,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
             outbox.append(identity, lines);
             cb.success();
         } catch (Exception e) {
+            // Not counted here: JS counts a failed exec as a drop (A4, T8).
             LOG.w(TAG, "enqueue failed", e);
             cb.error(String.valueOf(e.getMessage()));
         }

@@ -97,6 +97,17 @@ public class OutboxTest {
         assertEquals(Collections.singletonMap("events_dropped.expired", 4L), health.snapshot());
     }
 
+    @Test public void capsSkipTheSegmentBeingSent() throws Exception {
+        outbox.append(ID_V1, events(4));
+        outbox.seal();
+        File inFlight = outbox.sealed().get(0);
+        outbox.sending(inFlight);
+        now += Outbox.MAX_AGE_MS + 1;
+        outbox.seal();
+        assertTrue(inFlight.exists());
+        assertEquals(Collections.emptyMap(), health.snapshot());
+    }
+
     @Test public void segmentCountCapDropsOldest() throws Exception {
         for (int i = 0; i < Outbox.MAX_SEGMENTS + 2; i++) {
             now++;

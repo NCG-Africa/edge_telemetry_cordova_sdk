@@ -14,6 +14,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.LongSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Spec T2–T4, T7: append-only NDJSON segments. The open segment's first line is the identity
@@ -26,7 +28,7 @@ final class Outbox {
     static final int MAX_SEGMENTS = 200;
     static final long MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000;
 
-    private static final String SEALED_SUFFIX = ".ndjson";
+    private static final Pattern SEALED = Pattern.compile("(\\d{13})-\\d{6}\\.ndjson");
 
     static final class Segment {
         final String identity;
@@ -45,6 +47,7 @@ final class Outbox {
     private int openCount;
     private long openedAt;
     private int seq;
+    private File sending;
 
     Outbox(File dir, LongSupplier clock, Health health) {
         this.dir = dir;
@@ -98,17 +101,15 @@ final class Outbox {
 
     synchronized void seal() {
         if (open.exists()) {
-            // Name = seal time + per-process sequence, so name order is age order.
-            String name = String.format(Locale.US, "%013d-%06d%s", clock.getAsLong(), seq++, SEALED_SUFFIX);
             // On failure the segment stays open and the next append retries the seal.
-            if (open.renameTo(new File(dir, name))) openCount = 0;
+            if (open.renameTo(new File(dir, sealedName(clock.getAsLong(), seq++)))) openCount = 0;
         }
         enforceCaps();
     }
 
     /** Sealed segments, oldest first. */
     List<File> sealed() {
-        File[] files = dir.listFiles((d, name) -> name.endsWith(SEALED_SUFFIX) && name.length() > 13);
+        File[] files = dir.listFiles((d, name) -> sealedAt(name) >= 0);
         if (files == null) return Collections.emptyList();
         Arrays.sort(files);
         return new ArrayList<>(Arrays.asList(files));
@@ -129,6 +130,11 @@ final class Outbox {
         return new Segment(lines.get(0), lines.subList(1, lines.size()));
     }
 
+    /** The segment the sender is posting; caps leave it alone so it isn't counted as dropped. */
+    synchronized void sending(File f) {
+        sending = f;
+    }
+
     /** T7: over 5 MB or 200 segments → drop oldest; older than 7 days → drop. Counted (T8). */
     private void enforceCaps() {
         List<File> files = sealed();
@@ -137,8 +143,9 @@ final class Outbox {
         int count = files.size();
         long now = clock.getAsLong();
         for (File f : files) {
-            boolean expired = now - sealedAt(f) > MAX_AGE_MS;
+            boolean expired = now - sealedAt(f.getName()) > MAX_AGE_MS;
             if (!expired && total <= MAX_BYTES && count <= MAX_SEGMENTS) break;
+            if (f.equals(sending)) continue;
             int events;
             try {
                 events = read(f).events.size();
@@ -152,15 +159,18 @@ final class Outbox {
         }
     }
 
-    private static long sealedAt(File f) {
-        try {
-            return Long.parseLong(f.getName().substring(0, 13));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+    /** Seal time + per-process sequence, so name order is age order. */
+    private static String sealedName(long sealedAt, int seq) {
+        return String.format(Locale.US, "%013d-%06d.ndjson", sealedAt, seq);
     }
 
-    static byte[] readAll(File f) throws IOException {
+    /** Seal time from a sealed segment's name; -1 for any other file. */
+    private static long sealedAt(String name) {
+        Matcher m = SEALED.matcher(name);
+        return m.matches() ? Long.parseLong(m.group(1)) : -1;
+    }
+
+    private static byte[] readAll(File f) throws IOException {
         try (InputStream in = new FileInputStream(f)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[8192];

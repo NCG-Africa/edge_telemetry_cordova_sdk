@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Scanner;
 import java.util.TreeMap;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,7 +22,10 @@ final class Health {
         dir.mkdirs();
         file = new File(dir, "health.json");
         try {
-            JSONObject saved = new JSONObject(new String(Outbox.readAll(file), StandardCharsets.UTF_8));
+            JSONObject saved;
+            try (Scanner in = new Scanner(file, "UTF-8").useDelimiter("\\A")) {
+                saved = new JSONObject(in.next());
+            }
             JSONArray keys = saved.names();
             for (int i = 0; keys != null && i < keys.length(); i++) {
                 dropped.put(keys.getString(i), saved.getLong(keys.getString(i)));

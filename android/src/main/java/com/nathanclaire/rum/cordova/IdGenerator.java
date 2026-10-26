@@ -1,7 +1,5 @@
 package com.nathanclaire.rum.cordova;
 
-import android.content.Context;
-import android.content.SharedPreferences;
 import java.security.SecureRandom;
 import java.util.UUID;
 
@@ -10,17 +8,23 @@ import java.util.UUID;
  * Never throws: device_id is required on every batch.
  */
 final class IdGenerator {
-    private static final String PREFS_NAME = "edge_rum_cordova_ids";
-    private static final String KEY_DEVICE_ID = "device_id";
-    private static final String KEY_FALLBACK_DEVICE_ID = "device_id_fallback";
+    /** The two SharedPreferences calls the id needs; either may throw. */
+    interface Store {
+        String get(String key);
+
+        boolean put(String key, String value);
+    }
+
+    static final String KEY_DEVICE_ID = "device_id";
+    static final String KEY_FALLBACK_DEVICE_ID = "device_id_fallback";
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private final SharedPreferences prefs;
+    private final Store store;
     // Set once the primary id has failed; pins the fallback for this process so the id is stable.
     private volatile String pinnedFallbackId;
 
-    IdGenerator(Context context) {
-        prefs = context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    IdGenerator(Store store) {
+        this.store = store;
     }
 
     synchronized String deviceId() {
@@ -28,11 +32,11 @@ final class IdGenerator {
         try {
             // A persisted fallback wins over the primary slot, so a transient primary failure
             // can't make device_id flip between processes.
-            String id = prefs.getString(KEY_FALLBACK_DEVICE_ID, null);
-            if (id == null) id = prefs.getString(KEY_DEVICE_ID, null);
+            String id = store.get(KEY_FALLBACK_DEVICE_ID);
+            if (id == null) id = store.get(KEY_DEVICE_ID);
             if (id == null) {
                 id = generate("device");
-                prefs.edit().putString(KEY_DEVICE_ID, id).apply();
+                store.put(KEY_DEVICE_ID, id);
             }
             return id;
         } catch (RuntimeException e) {
@@ -45,10 +49,10 @@ final class IdGenerator {
     private String fallbackId() {
         String id;
         try {
-            id = prefs.getString(KEY_FALLBACK_DEVICE_ID, null);
+            id = store.get(KEY_FALLBACK_DEVICE_ID);
             if (id == null) {
                 id = UUID.randomUUID().toString();
-                if (!prefs.edit().putString(KEY_FALLBACK_DEVICE_ID, id).commit()) id = UUID.randomUUID().toString();
+                if (!store.put(KEY_FALLBACK_DEVICE_ID, id)) id = UUID.randomUUID().toString();
             }
         } catch (RuntimeException e) {
             id = UUID.randomUUID().toString();
