@@ -87,13 +87,18 @@ final class Watchdog {
             return;
         }
         long blocked = clock.getAsLong() - pendingSince;
-        if (hangMs > 0 && !hangFired && blocked >= hangMs) {
+        boolean hang = hangMs > 0 && !hangFired && blocked >= hangMs;
+        boolean anr = anrMs > 0 && !anrFired && blocked >= anrMs;
+        if (!hang && !anr) return;
+        // One stack per scan: a stall crossing both lines in one read reports the same frames.
+        String stack = mainStack.get();
+        if (hang) {
             hangFired = true;
-            onHang.accept(mainStack.get(), blocked);
+            onHang.accept(stack, blocked);
         }
-        if (anrMs > 0 && !anrFired && blocked >= anrMs) {
+        if (anr) {
             anrFired = true;
-            onAnr.accept(mainStack.get(), blocked);
+            onAnr.accept(stack, blocked);
         }
     }
 }

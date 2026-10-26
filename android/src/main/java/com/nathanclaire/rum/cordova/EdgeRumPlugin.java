@@ -47,7 +47,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
     private Watchdog watchdog;
     private final AtomicBoolean armed = new AtomicBoolean();
     private volatile CallbackContext subscriber;
-    private String identity;
+    /** Read by the crash and watchdog threads; replaced by `reset()`. */
+    private volatile String identity;
+    /** Watchdog is foreground only (E14, E15). */
+    private volatile boolean foreground = true;
     private String sdkVersion;
     private final long processStartedAt =
             System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime());
@@ -94,9 +97,10 @@ public class EdgeRumPlugin extends CordovaPlugin {
             if (!consent.enabled()) return;
             append(session.begin());
             admit(exits);
-            crash.saveContext(identity, session.id(), user.id());
+            // Armed after the context exists, so an NDK crash always has one to replay under.
+            saveCrashContext();
+            arm();
         });
-        if (consent.enabled()) arm();
         // T3: 30 s after the first event, within a second.
         worker.scheduleWithFixedDelay(outbox::sealIfDue, 1, 1, TimeUnit.SECONDS);
         // T6: 30 s retry tick for parked segments.
@@ -106,7 +110,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     /** E12, E14, E15: crash handlers once per process; the watchdog while in the foreground. */
     private void arm() {
-        watchdog.start();
+        if (foreground) watchdog.start();
         if (!armed.compareAndSet(false, true)) return;
         crash.installJvm(e -> solo(() -> e));
         try {
@@ -117,7 +121,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
     }
 
-    interface Record {
+    interface NativeRecord {
         JSONObject build() throws JSONException;
     }
 
@@ -125,12 +129,14 @@ public class EdgeRumPlugin extends CordovaPlugin {
      * T4: a native crash / ANR / hang becomes its own segment under the running build's identity,
      * after the session gate (a hang follows the roll, S2). Any thread, including a dying one.
      */
-    private void solo(Record record) {
+    private void solo(NativeRecord record) {
         if (!consent.enabled()) return;
         try {
             JSONObject event = record.build();
+            String before = session.id();
             append(session.rotateIfIdle());
             for (String line : session.admit(Collections.singletonList(event))) writeSolo(identity, line);
+            if (before != null && !before.equals(session.id())) notify("session");
         } catch (JSONException e) {
             LOG.w(TAG, "native record failed", e);
         }
@@ -143,6 +149,11 @@ public class EdgeRumPlugin extends CordovaPlugin {
         } catch (IOException e) {
             LOG.w(TAG, "solo segment failed", e);
         }
+    }
+
+    /** What a later NDK crash report replays under (T4). */
+    private void saveCrashContext() {
+        crash.saveContext(identity, session.id(), user.id());
     }
 
     private static String mainStack() {
@@ -321,7 +332,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         }
         // Not counted on failure: JS counts a failed exec as a drop (A4, T8).
         boolean ok = admit(list);
-        crash.saveContext(identity, session.id(), user.id());
+        saveCrashContext();
         if (ok) cb.success();
         else cb.error("append failed");
     }
@@ -365,8 +376,8 @@ public class EdgeRumPlugin extends CordovaPlugin {
         boolean was = consent.enabled();
         append(consent.setEnabled(on));
         if (on) {
+            saveCrashContext();
             arm();
-            crash.saveContext(identity, session.id(), user.id());
         } else {
             watchdog.stop();
             crash.clear();
@@ -381,7 +392,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         crash.clear();
         if (consent.enabled()) {
             append(session.restart());
-            crash.saveContext(identity, session.id(), user.id());
+            saveCrashContext();
             notify("session");
         }
         cb.success();
@@ -389,6 +400,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
 
     @Override
     public void onPause(boolean multitasking) {
+        foreground = false;
         if (watchdog != null) watchdog.stop();
         flush();
     }
@@ -401,6 +413,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
     @Override
     public void onResume(boolean multitasking) {
         if (worker == null) return;
+        foreground = true;
         if (consent.enabled()) watchdog.start();
         worker.execute(() -> {
             // E1: a foreground after the idle timeout starts a new session.

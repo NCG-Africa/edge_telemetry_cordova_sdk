@@ -13,6 +13,7 @@
 #include <jni.h>
 #include <link.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/prctl.h>
@@ -30,6 +31,7 @@ static const int SIGNALS[] = {SIGSEGV, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGTRAP}
 
 static struct sigaction previous[NSIGNALS];
 static char report_path[1024];
+static char tmp_path[sizeof report_path + 4];
 static uintptr_t page_size = 4096;
 static volatile sig_atomic_t installed;
 static volatile sig_atomic_t handling;
@@ -137,7 +139,8 @@ static void put_frame(int fd, uintptr_t pc) {
 }
 
 static void report(int sig, const siginfo_t *info, const ucontext_t *uc) {
-    int fd = open(report_path, O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
+    // Written aside and renamed, so a kill mid-write never leaves a torn report in place.
+    int fd = open(tmp_path, O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
     if (fd < 0) return;
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
@@ -173,6 +176,7 @@ static void report(int sig, const siginfo_t *info, const ucontext_t *uc) {
     if (pc) put_frame(fd, pc);
     for (int i = start; i < frames.n; i++) put_frame(fd, frames.pcs[i]);
     close(fd);
+    rename(tmp_path, report_path);
 }
 
 static void handle(int sig, siginfo_t *info, void *uc) {
@@ -206,6 +210,8 @@ JNIEXPORT void JNICALL Java_com_nathanclaire_rum_cordova_Crash_installNdk(JNIEnv
     if (!p) return;
     strncpy(report_path, p, sizeof report_path - 1);
     (*env)->ReleaseStringUTFChars(env, path, p);
+    memcpy(tmp_path, report_path, sizeof report_path);
+    strcat(tmp_path, ".tmp");
     long ps = sysconf(_SC_PAGESIZE);
     if (ps > 0) page_size = (uintptr_t)ps;
 
