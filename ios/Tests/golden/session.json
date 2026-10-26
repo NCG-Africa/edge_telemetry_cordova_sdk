@@ -1,0 +1,78 @@
+{
+  "type": "telemetry_batch",
+  "contract_version": "4.0.0",
+  "timestamp": "2026-10-26T10:30:05.001Z",
+  "batch_size": 5,
+  "device_id": "device_1700000000000_0123456789abcdef_ios",
+  "sdk": {
+    "name": "cordova",
+    "version": "1.0.0"
+  },
+  "app": {
+    "name": "Fixture",
+    "package_name": "com.nathanclaire.rum.fixture",
+    "platform": "ios",
+    "version": "1.4.2",
+    "build_number": "142"
+  },
+  "events": [
+    {
+      "type": "event",
+      "eventName": "session.started",
+      "timestamp": "2026-10-26T10:00:00.000Z",
+      "attributes": {
+        "session.id": "session_1",
+        "user.id": "u1",
+        "session.start_time": "2026-10-26T10:00:00.000Z",
+        "session.is_first_session": true,
+        "session.total_sessions": 1
+      }
+    },
+    {
+      "type": "event",
+      "eventName": "navigation",
+      "timestamp": "t",
+      "attributes": {
+        "session.id": "session_1",
+        "user.id": "u1",
+        "navigation.to_screen": "/home"
+      }
+    },
+    {
+      "type": "metric",
+      "metricName": "LCP",
+      "value": 1,
+      "attributes": {
+        "session.id": "session_1",
+        "user.id": "u1"
+      }
+    },
+    {
+      "type": "event",
+      "eventName": "session.finalized",
+      "timestamp": "2026-10-26T10:00:05.000Z",
+      "attributes": {
+        "session.id": "session_1",
+        "user.id": "u1",
+        "session.start_time": "2026-10-26T10:00:00.000Z",
+        "session.duration_ms": 5000,
+        "session.event_count": 1,
+        "session.metric_count": 1,
+        "session.screen_count": 1,
+        "session.visited_screens": "/home"
+      }
+    },
+    {
+      "type": "event",
+      "eventName": "session.started",
+      "timestamp": "2026-10-26T10:30:05.001Z",
+      "attributes": {
+        "session.id": "session_2",
+        "user.id": "u1",
+        "session.start_time": "2026-10-26T10:30:05.001Z",
+        "session.is_first_session": false,
+        "session.total_sessions": 2
+      }
+    }
+  ]
+}
