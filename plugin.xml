@@ -2,7 +2,7 @@
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         xmlns:android="http://schemas.android.com/apk/res/android"
         id="@nathanclaire/rum-cordova"
-        version="1.0.0-dev">
+        version="1.0.0">
   <name>Edge RUM</name>
   <description>Real User Monitoring for Cordova apps on Android and iOS</description>
   <license>MIT</license>
@@ -45,7 +45,7 @@
     <preference name="EdgeRumSampleRate" value="$EDGE_RUM_SAMPLE_RATE" />
     <preference name="EdgeRumDebug" value="$EDGE_RUM_DEBUG" />
     <!-- Spec V3: native reads sdk.version from here; scripts/sync-version.mjs keeps it = package.json. -->
-    <preference name="EdgeRumSdkVersion" value="1.0.0-dev" />
+    <preference name="EdgeRumSdkVersion" value="1.0.0" />
   </config-file>
 
   <js-module src="www/edge-rum.js" name="EdgeRum">
