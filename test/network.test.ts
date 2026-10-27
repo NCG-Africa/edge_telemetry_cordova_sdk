@@ -68,6 +68,7 @@ describe('URL scrub (P1)', () => {
     ['https://api.example.com/blob/deadbeefdeadbeefdea', 'https://api.example.com/blob/deadbeefdeadbeefdea'],
     ['https://api.example.com/v2/items/abc123', 'https://api.example.com/v2/items/abc123'],
     ['/api/orders/42?x=1', 'http://localhost:3000/api/orders/{id}'],
+    ['https://api.example.com:443/a', 'https://api.example.com/a'], // default port: URL drops it, as Dart's Uri
   ])('%s → %s', async (from, to) => {
     const { network } = await load();
     expect(network.scrubUrl(from)).toBe(to);
@@ -146,6 +147,8 @@ describe('traceparent (E8)', () => {
     expect(a).toBe(`00-${ra.attributes['trace.id']}-${ra.attributes['span.id']}-01`);
     expect(b).toMatch(TP);
     expect(c).toBeNull();
+    await window.fetch('https://api.example.com/opaque', { mode: 'no-cors' });
+    expect(new Headers(t.fetchCalls[3].init?.headers).get('traceparent')).toBeNull();
     expect(new Headers(t.fetchCalls[0].init?.headers).get('x-host')).toBe('kept');
     expect(host).toEqual({ 'x-host': 'kept' }); // host's object untouched
   });

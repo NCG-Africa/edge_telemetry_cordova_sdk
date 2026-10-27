@@ -1,4 +1,4 @@
-import { breadcrumb, live, now, record, state, type Attributes } from './core';
+import { breadcrumb, live, now, record, state, whenReady, type Attributes } from './core';
 
 // P1: all digits, canonical UUID, or ≥ 20 hex.
 const ID = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{20,})$/i;
@@ -20,10 +20,10 @@ export function scrubUrl(url: string): string {
   const u = absolute(url);
   // ponytail: unparseable → cut by hand, as Flutter's redactUnparsedUrl.
   const scrubbed = u ? `${u.protocol}//${u.host}${template(u.pathname)}` : template(url.split(/[?#]/)[0]);
-  const host = state.options.sanitizeUrl;
-  if (!host) return scrubbed;
+  const sanitize = state.options.sanitizeUrl;
+  if (!sanitize) return scrubbed;
   try {
-    const out = host(scrubbed);
+    const out = sanitize(scrubbed);
     return typeof out === 'string' ? out : scrubbed;
   } catch {
     return scrubbed;
@@ -76,10 +76,12 @@ function patchFetch() {
   if (!original) return;
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
     const req = typeof Request !== 'undefined' && input instanceof Request ? input : undefined;
-    const url = req ? req.url : String(input);
+    // Resolved, as XHR's: ignore rules see one form whichever API the host used.
+    const url = req ? req.url : absolute(String(input))?.href ?? String(input);
     if (!capturing(url)) return original.call(this, input, init);
     const method = init?.method ?? req?.method ?? 'GET';
-    const t = trace(url);
+    // no-cors forbids non-safelisted headers: adding one would make fetch throw.
+    const t = (init?.mode ?? req?.mode) === 'no-cors' ? undefined : trace(url);
     if (t) {
       // A copy: the host's Headers / Request are never mutated. Their own traceparent wins.
       const headers = new Headers(init?.headers ?? req?.headers);
@@ -160,5 +162,6 @@ function observeResources() {
 if (live) {
   patchFetch();
   patchXhr();
-  observeResources();
+  // At deviceready, so `buffered` replays page-load entries into a pre-deviceready `init()`'s choice.
+  whenReady(observeResources);
 }
