@@ -1,10 +1,8 @@
-import { breadcrumb, live, now, record, state, whenReady, type Attributes } from './core';
-import { template } from './network';
-
-const event = (eventName: string, attributes: Attributes) => record({ type: 'event', eventName, timestamp: now(), attributes });
+import { breadcrumb, event, flush, live, state, template, whenReady, type Attributes } from './core';
 
 // Not `screen`: the bundle may run unwrapped, where that is `window.screen`.
-let current: { name: string; start: number } | undefined;
+// `start` unset while backgrounded: that time was already reported.
+let current: { name: string; start?: number } | undefined;
 /** The URL-derived name last reported, so one route is never reported twice (or after `trackScreen` named it). */
 let route: string | undefined;
 
@@ -14,9 +12,8 @@ export const currentScreen = () => current?.name;
 /** E4 / E5: leave the current screen (one `screen.duration`) and enter `name` (one `navigation`). */
 export function enter(name: string, method: string, attrs: Attributes = {}) {
   const from = current;
-  const t = performance.now();
-  if (from) event('screen.duration', { 'screen.name': from.name, 'screen.duration_ms': Math.round(t - from.start), 'screen.exit_method': method });
-  current = { name, start: t };
+  close(method);
+  current = { name, start: performance.now() };
   state.activity++;
   breadcrumb('navigation', name);
   event('navigation', {
@@ -26,6 +23,13 @@ export function enter(name: string, method: string, attrs: Attributes = {}) {
     'navigation.method': method,
     'navigation.timestamp': Date.now(),
   });
+}
+
+/** E5: report the time on the current screen so far. */
+function close(method: string) {
+  if (current?.start === undefined) return;
+  event('screen.duration', { 'screen.name': current.name, 'screen.duration_ms': Math.round(performance.now() - current.start), 'screen.exit_method': method });
+  current.start = undefined;
 }
 
 /** P2: hash route if present (`#/…`, `#!/…`), else path; query dropped; ids → `{id}`; host `screenName` overrides. */
@@ -69,6 +73,17 @@ if (live) {
   // A hash link fires popstate then hashchange; the second sees the same route and is dropped.
   window.addEventListener('popstate', () => auto('pop'));
   window.addEventListener('hashchange', () => auto('hash'));
+  // E5: the last screen before backgrounding (or never coming back) still gets its duration.
+  const away = () => {
+    close('background');
+    flush(); // core's own hidden flush ran before this listener
+  };
+  const back = () => {
+    if (current && current.start === undefined) current.start = performance.now();
+  };
+  document.addEventListener('pause', away, false);
+  document.addEventListener('resume', back, false);
+  document.addEventListener('visibilitychange', () => (document.visibilityState === 'hidden' ? away() : back()));
   // At deviceready, so a pre-deviceready `init({ captureScreens: false })` is honoured.
   whenReady(() => auto('initial'));
 }

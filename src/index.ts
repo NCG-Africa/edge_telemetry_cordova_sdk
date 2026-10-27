@@ -1,4 +1,4 @@
-import { call, DEFAULTS, discard, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
+import { call, DEFAULTS, discard, event, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
 import { crash } from './errors';
 import './interactions';
 import './network';
@@ -33,8 +33,6 @@ declare global {
 
 /** Version of this plugin, e.g. `1.0.0`. */
 export const sdkVersion: string = __SDK_VERSION__;
-
-const event = (eventName: string, attributes: Attributes = {}) => record({ type: 'event', eventName, timestamp: now(), attributes });
 
 /**
  * Optional. Capture starts on load with defaults; call this to change them. Before

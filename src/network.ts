@@ -1,8 +1,5 @@
-import { breadcrumb, live, now, record, state, whenReady, type Attributes } from './core';
+import { breadcrumb, live, now, record, state, template, whenReady, type Attributes } from './core';
 
-// P1: all digits, canonical UUID, or ≥ 20 hex.
-const ID = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{20,})$/i;
-export const template = (path: string) => path.split('/').map((s) => (ID.test(s) ? '{id}' : s)).join('/');
 
 const absolute = (url: string) => {
   try {

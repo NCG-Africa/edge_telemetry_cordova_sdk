@@ -105,6 +105,22 @@ describe('navigation + screen.duration (E4, E5)', () => {
     expect(t.named('screen.duration').map((a) => a['screen.name'])).toEqual(['/orders/{id}', 'Order']);
   });
 
+  it('going to the background closes the screen; returning restarts its clock', async () => {
+    const t = await load('/home');
+    vi.advanceTimersByTime(300);
+    const hide = (state: string) => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    hide('hidden');
+    vi.advanceTimersByTime(5000); // away: not counted
+    hide('visible');
+    delete (document as { visibilityState?: unknown }).visibilityState;
+    vi.advanceTimersByTime(200);
+    history.pushState(null, '', '/cart');
+    expect(t.named('screen.duration').map((a) => [a['screen.exit_method'], a['screen.duration_ms']])).toEqual([['background', 300], ['push', 200]]);
+  });
+
   it('captureScreens:false → only trackScreen', async () => {
     const t = await load('/home', { captureScreens: false });
     history.pushState(null, '', '/cart');
@@ -125,12 +141,15 @@ describe('ui.target name chain (P4)', () => {
     ['<div>plain text</div>', 'div', 'none'],
     ['<input value="secret 4111">', 'input', 'none'],
     ['<textarea>secret</textarea>', 'textarea', 'none'],
+    ['<select><option>secret</option></select>', 'select', 'none'],
+    ['<a href="#">Hi <span data-edge-private>Acct 123</span></a>', 'a', 'none'],
+    ['<button>Edit <span contenteditable="true">secret</span></button>', 'button', 'none'],
     ['<div contenteditable="true"><button>secret</button></div>', 'button', 'none'],
     ['<div data-edge-private><button aria-label="Acct 123" id="i">secret</button></div>', 'button', 'none'],
   ])('%s → %s (%s)', async (markup, target, source) => {
     const t = await load();
     const root = html(markup);
-    click(root.querySelector('button, a, input, textarea, span, [role]') ?? root, { clientX: 10.4, clientY: 20.6 });
+    click(root.querySelector('button, a, input, textarea, select, span, [role]') ?? root, { clientX: 10.4, clientY: 20.6 });
     vi.advanceTimersByTime(1000);
     expect(t.named('ui.interaction').at(-1)).toMatchObject({ 'ui.type': 'click', 'ui.target': target, 'ui.name_source': source, 'ui.screen': '/', 'ui.x': 10, 'ui.y': 21 });
   });
@@ -183,6 +202,16 @@ describe('rage and dead taps (E25)', () => {
     vi.advanceTimersByTime(1);
     expect(t.named('ui.interaction')).toHaveLength(4);
     expect(t.named('ui.interaction')[3]['ui.dead']).toBeUndefined();
+  });
+
+  it('stamped at the tap, not when its dead window closes', async () => {
+    const t = await load();
+    const before = Date.now();
+    click(html('<button>Go</button>'));
+    vi.advanceTimersByTime(1000);
+    t.named('ui.interaction');
+    const [tap] = t.payloads.flatMap((p) => p.events).filter((e) => e.eventName === 'ui.interaction');
+    expect(Date.parse(tap.timestamp)).toBe(before);
   });
 
   it('a tap on a non-control is never judged dead', async () => {

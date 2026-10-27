@@ -1,10 +1,11 @@
-import { breadcrumb, flush, live, now, record, state, type Attributes } from './core';
+import { breadcrumb, event, flush, live, now, state, type Attributes } from './core';
 import { currentScreen } from './screens';
 
 const WINDOW_MS = 1000; // E25: rage and dead windows
 const RAGE_TAPS = 3;
 // P4: the elements whose visible text may name them.
 const TEXT_OK = 'button, a, [role=button], [role=link], [role=tab], [role=menuitem]';
+const EDITABLE = '[contenteditable]:not([contenteditable=false])';
 
 /** P4: trim, collapse, 64-char cap, digits → `#`. */
 const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, 64).replace(/\d/g, '#');
@@ -16,8 +17,10 @@ function nameOf(target: Element, el: Element): [string, string] {
     if (action) return [action, 'edge_action'];
     const aria = clean(el.getAttribute('aria-label'));
     if (aria) return [aria, 'aria_label'];
-    if (clean(el.id)) return [clean(el.id), 'id'];
-    const text = el.matches(TEXT_OK) && !el.closest('[contenteditable]:not([contenteditable=false])') ? clean(el.textContent) : '';
+    const id = clean(el.id);
+    if (id) return [id, 'id'];
+    // textContent reads descendants too: any private or editable one rules text out.
+    const text = el.matches(TEXT_OK) && !el.closest(EDITABLE) && !el.querySelector(`[data-edge-private], ${EDITABLE}`) ? clean(el.textContent) : '';
     if (text) return [text, 'text'];
   }
   return [el.tagName.toLowerCase(), 'none'];
@@ -31,8 +34,9 @@ function rage(el: Element, at: number) {
   return recent.filter((r) => r.el === el).length >= RAGE_TAPS;
 }
 
-const pending = new Set<{ attrs: Attributes; timer: ReturnType<typeof setTimeout> }>();
-const emit = (attrs: Attributes) => record({ type: 'event', eventName: 'ui.interaction', timestamp: now(), attributes: attrs });
+// `at`: stamped at the tap, not at the end of its dead window, so it stays before what it caused.
+const pending = new Set<{ attrs: Attributes; at: string; timer: ReturnType<typeof setTimeout> }>();
+const emit = (attrs: Attributes, at: string) => event('ui.interaction', attrs, at);
 
 // Watching the DOM only while a dead-tap window is open: a whole-document observer is not free.
 let observer: MutationObserver | undefined;
@@ -54,24 +58,27 @@ function onTap(ev: MouseEvent) {
   const [label, source] = nameOf(target, el);
   const type = (ev as PointerEvent).pointerType === 'touch' ? 'tap' : 'click';
   breadcrumb('ui', `${type} ${label}`);
+  const at = now();
+  const screen = currentScreen();
   const attrs: Attributes = {
     'ui.type': type,
     'ui.target': label,
     'ui.name_source': source,
     'ui.x': Math.round(ev.clientX),
     'ui.y': Math.round(ev.clientY),
-    ...(currentScreen() !== undefined && { 'ui.screen': currentScreen() as string }),
+    ...(screen !== undefined && { 'ui.screen': screen }),
     ...(rage(el, performance.now()) && { 'ui.rage': true }),
   };
   // Dead is judged on controls only: a tap on whitespace or into a text field rightly does nothing.
-  if (!control) return emit(attrs);
+  if (!control) return emit(attrs, at);
   const tick = state.activity;
   const entry = {
     attrs,
+    at,
     timer: setTimeout(() => {
       pending.delete(entry);
       if (!pending.size) watch(false);
-      emit(state.activity === tick ? { ...attrs, 'ui.dead': true } : attrs);
+      emit(state.activity === tick ? { ...attrs, 'ui.dead': true } : attrs, at);
     }, WINDOW_MS),
   };
   pending.add(entry);
@@ -83,7 +90,7 @@ function drain() {
   if (!pending.size) return;
   for (const p of pending) {
     clearTimeout(p.timer);
-    emit(p.attrs);
+    emit(p.attrs, p.at);
   }
   pending.clear();
   watch(false);
@@ -94,6 +101,7 @@ if (live) {
   // E25: capture phase, so the tap is seen before the host's handler navigates or stops it.
   document.addEventListener('click', onTap, true);
   document.addEventListener('pause', drain, false);
+  window.addEventListener('pagehide', drain);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') drain();
   });
