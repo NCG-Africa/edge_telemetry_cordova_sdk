@@ -102,9 +102,19 @@ describe('app.start phases (A5)', () => {
     const before = Date.now();
     const t = await load({ nav: { responseEnd: 120.4, domContentLoadedEventStart: 300, loadEventStart: 0 } });
     const marks = t.calls.filter((c) => c.action === 'markPhase').map((c) => c.args[0] as { phase: string; ts: number });
-    expect(marks.map((m) => m.phase)).toEqual(['responseEnd', 'DOMContentLoaded', 'deviceready']); // load not reached: skipped
+    expect(marks.map((m) => m.phase)).toEqual(['responseEnd', 'DOMContentLoaded', 'deviceready']); // load not reached yet
     expect(marks[0].ts).toBe(Math.round(performance.timeOrigin + 120.4));
-    expect(marks[2].ts).toBeGreaterThanOrEqual(before);
+    expect(marks[2].ts).toBeGreaterThanOrEqual(before - 1);
+  });
+
+  it('a phase known after deviceready (slow load) is sent once, when it lands', async () => {
+    const nav = { responseEnd: 100, domContentLoadedEventStart: 200, loadEventStart: 0 };
+    const t = await load({ nav });
+    nav.loadEventStart = 5000;
+    window.dispatchEvent(new Event('load'));
+    window.dispatchEvent(new Event('load'));
+    const phases = t.calls.filter((c) => c.action === 'markPhase').map((c) => (c.args[0] as { phase: string }).phase);
+    expect(phases).toEqual(['responseEnd', 'DOMContentLoaded', 'deviceready', 'load']);
   });
 
   it('falls back to legacy performance.timing (already epoch ms)', async () => {
@@ -175,6 +185,8 @@ describe('bridge timing (E18, E19)', () => {
       answer(ms !== 20);
     }
     t.plugCall('Device', 'getInfo')();
+    t.plugCall('CoreAndroid', 'messageChannel'); // platform keep-callback: never timed
+    vi.advanceTimersByTime(30_000);
     leaveScreen();
     expect(t.attrs('bridge.summary')).toEqual([
       { 'screen.name': '/', 'bridge.service': 'Camera', 'bridge.action': 'take', 'bridge.count': 20, 'bridge.error_count': 1, 'bridge.p50_ms': 10, 'bridge.p95_ms': 19, 'bridge.max_ms': 20 },

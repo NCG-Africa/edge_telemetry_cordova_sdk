@@ -6,7 +6,7 @@ window.__exec = [];
 window.__plugin = { delayMs: 0 };
 
 function answer(id, ok, result, keep) {
-  cordova.callbackFromNative(id, ok, ok ? 1 : 9, [result], keep);
+  window.cordova.callbackFromNative(id, ok, ok ? 1 : 9, [result], keep);
 }
 
 function native([id, service, action, args]) {
@@ -49,17 +49,17 @@ window.cordova = {
   callbackId: Math.floor(Math.random() * 2000000000),
   callbacks: {},
   callbackFromNative(id, isSuccess, status, args, keepCallback) {
-    const cb = cordova.callbacks[id];
+    const cb = window.cordova.callbacks[id];
     if (!cb) return;
-    if (!keepCallback) delete cordova.callbacks[id];
+    if (!keepCallback) delete window.cordova.callbacks[id];
     const f = isSuccess ? cb.success : cb.fail;
     if (f) f.apply(null, args);
   },
   exec(success, fail, service, action, args) {
     let id = 'INVALID';
     if (success || fail) {
-      id = service + cordova.callbackId++;
-      cordova.callbacks[id] = { success, fail };
+      id = service + window.cordova.callbackId++;
+      window.cordova.callbacks[id] = { success, fail };
     }
     window.webkit.messageHandlers.cordova.postMessage([id, service, action, JSON.parse(JSON.stringify(args || []))]);
   },

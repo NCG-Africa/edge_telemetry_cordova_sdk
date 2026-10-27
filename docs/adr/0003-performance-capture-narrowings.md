@@ -8,10 +8,12 @@ E18 groups `bridge.summary` by `bridge.service` + `bridge.action` and times call
 
 ## Decision
 
-- **Timing** runs from the `cordova.callbacks[id]` registration (Proxy `set` trap) to the first `cordova.callbackFromNative(id)`. The service is the id prefix (`service + cordova.callbackId++`). Calls without callbacks are not timed. A keep-callback stream is timed to its first result only.
+- **Timing** runs from the `cordova.callbacks[id]` registration (Proxy `set` trap) to the first `cordova.callbackFromNative(id)`. The service is the id prefix (`service + cordova.callbackId++`). Calls without callbacks are not timed, and neither are the SDK's own `EdgeRum` calls or cordova-android's `CoreAndroid` message channel (a keep-callback that stays silent until pause or resume). A keep-callback stream is timed to its first result only.
 - **Action** is read where exec hands the call to native, just after the callback is registered. On iOS that is `webkit.messageHandlers.cordova.postMessage([id, service, action, args])`. On Android it is `nativeApiProvider.get().exec(secret, service, action, id, args)`. If neither hook takes, the call is still timed with `bridge.action=unknown`.
 - **Windows** are screen visits. A window ends when the screen is left or the app hides. Each window sends one `frame.summary` and one `bridge.summary` per service + action. Anything before the first screen counts toward the first screen. With no screens at all, only hiding ends a window, and the rows carry no `screen.name`.
 - **`bridge.call`**: `error` on every failed call, whatever its duration. `slow` when a successful call takes at least `slowBridgeCallMs`. `no_callback` when nothing comes back within 30 s, and a late answer after that is ignored. A `no_callback` call is not counted in `bridge.summary`.
+- **App start phases** are each sent once, as soon as navigation timing knows them (at load of this script, `DOMContentLoaded`, `load` and `deviceready`), because `deviceready` can arrive before `load`. `deviceready` is stamped with the event's own time.
+- **Vitals** carry `metric.unit`, `metric.rating` and `metric.screen`, as the Ionic sibling does.
 - **Frames**: a frame is the gap between two visible rAF ticks. Slow means at least `frameSlowThresholdMs`. Frozen means at least 700 ms, the Android vitals threshold. Hidden time never counts as a frame.
 
 ## Consequences

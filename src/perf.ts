@@ -18,12 +18,20 @@ interface NativeApi {
 // A5: navigation-timing key per phase. Native turns each into `app.start.*`.
 const PHASES = [['responseEnd', 'responseEnd'], ['DOMContentLoaded', 'domContentLoadedEventStart'], ['load', 'loadEventStart']] as const;
 
+const marked = new Set<string>();
+
+/**
+ * Each phase once, as soon as it is known: `deviceready` can beat `load` (slow images), and
+ * native assembles `app.start` from whatever marks it has when `markReady()` arrives.
+ */
 function markPhases() {
   const nav = performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined;
   for (const [phase, key] of PHASES) {
     // Navigation Timing 2 counts from timeOrigin; the legacy `performance.timing` is already epoch ms.
     const t = nav ? nav[key] && performance.timeOrigin + nav[key] : performance.timing?.[key];
-    if (t) call('markPhase', { phase, ts: Math.round(t) });
+    if (!t || marked.has(phase)) continue;
+    marked.add(phase);
+    call('markPhase', { phase, ts: Math.round(t) });
   }
 }
 
@@ -78,11 +86,13 @@ function sampleFrames() {
 
 // E18 / E19: plugin calls timed from `cordova.callbacks` registration to `callbackFromNative`.
 const NO_CALLBACK_MS = 30_000;
+// Ours, and cordova-android's own `messageChannel` keep-callback (silent until pause / resume).
+const UNTIMED = ['EdgeRum', 'CoreAndroid'];
 interface Call { service: string; action: string; start: number; timer?: ReturnType<typeof setTimeout> }
 const calls = new Map<string, Call>();
 const groups = new Map<string, { service: string; action: string; ms: number[]; errors: number }>();
 
-function single(c: Call, ms: number, outcome: string) {
+function reportCall(c: Call, ms: number, outcome: string) {
   event('bridge.call', { 'bridge.service': c.service, 'bridge.action': c.action, 'bridge.duration_ms': Math.round(ms), 'bridge.outcome': outcome });
 }
 
@@ -94,12 +104,12 @@ function answered(c: Call, ok: boolean) {
   g.ms.push(ms);
   if (!ok) {
     g.errors++;
-    single(c, ms, 'error');
-  } else if (ms >= (state.options.slowBridgeCallMs ?? 1000)) single(c, ms, 'slow');
+    reportCall(c, ms, 'error');
+  } else if (ms >= (state.options.slowBridgeCallMs ?? 1000)) reportCall(c, ms, 'slow');
 }
 
-/** Nearest-rank percentile of an ascending list. */
-export const percentile = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
+// ponytail: nearest-rank, no interpolation; windows hold few calls, so the gap rarely shows.
+const percentile = (sorted: number[], p: number) => sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
 
 function patchBridge(cordova: Cordova) {
   const original = cordova.callbackFromNative;
@@ -110,12 +120,12 @@ function patchBridge(cordova: Cordova) {
         // exec registers `service + cordova.callbackId++`: the counter is already past this id.
         const n = String(cordova.callbackId - 1);
         const service = id.endsWith(n) ? id.slice(0, -n.length) : id.replace(/\d+$/, '');
-        if (service !== 'EdgeRum') {
+        if (!UNTIMED.includes(service)) {
           const c: Call = { service, action: 'unknown', start: performance.now() };
           c.timer = setTimeout(() => {
             if (calls.get(id) !== c) return;
             calls.delete(id);
-            single(c, performance.now() - c.start, 'no_callback');
+            reportCall(c, performance.now() - c.start, 'no_callback');
           }, NO_CALLBACK_MS);
           calls.set(id, c);
         }
@@ -123,7 +133,7 @@ function patchBridge(cordova: Cordova) {
       return Reflect.set(target, id, value);
     },
   });
-  // First result ends the call; a keep-callback stream's later results are not timed.
+  // ponytail: first result ends the call; a keep-callback stream's later results are not timed.
   cordova.callbackFromNative = function (this: unknown, id: string, isSuccess: boolean, ...rest: unknown[]) {
     const c = calls.get(id);
     if (c) {
@@ -209,9 +219,14 @@ function endWindow(screen?: string) {
 }
 
 if (live) {
-  if (document.readyState === 'complete') markPhases();
-  else window.addEventListener('load', markPhases);
-  document.addEventListener('deviceready', () => call('markPhase', { phase: 'deviceready', ts: Date.now() }), false);
+  markPhases();
+  document.addEventListener('DOMContentLoaded', markPhases);
+  window.addEventListener('load', markPhases);
+  // Stamped at the event, not when this listener runs after core's own deviceready work.
+  document.addEventListener('deviceready', (e) => {
+    markPhases();
+    call('markPhase', { phase: 'deviceready', ts: Math.round(performance.timeOrigin + e.timeStamp) });
+  }, false);
   patchBridge((globalThis as unknown as { cordova: Cordova }).cordova);
   state.onScreenLeave = endWindow;
   // At deviceready, so a pre-deviceready `init()` decides; web-vitals replays buffered entries.
