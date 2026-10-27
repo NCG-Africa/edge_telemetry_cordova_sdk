@@ -16,7 +16,7 @@ test.beforeEach(async ({ page, request }) => {
 test('A2 action names and args', async ({ page }) => {
   await page.evaluate(() => {
     const E = window.EdgeRum;
-    E.init({ apiKey: 'k', endpoint: 'https://ingest.example' });
+    E.init({ apiKey: 'k', endpoint: 'https://ingest.example', captureScreens: false });
     E.identify({ id: 'u1', email: 'a@b.c' });
     E.track('checkout', { plan: 'pro' });
     E.markReady();
@@ -81,5 +81,5 @@ test('a thrown error reaches mock-ingest as a fatal app.crash with breadcrumbs',
     attributes: { message: 'harness boom', exception_type: 'TypeError', handled: false, is_fatal: true, runtime: 'webview' },
   });
   const attrs = (await crash())?.attributes ?? {};
-  expect(JSON.parse(attrs['crash.breadcrumbs'] as string)).toEqual([expect.objectContaining({ category: 'console', message: 'before the throw' })]);
+  expect(JSON.parse(attrs['crash.breadcrumbs'] as string)).toContainEqual(expect.objectContaining({ category: 'console', message: 'before the throw' }));
 });

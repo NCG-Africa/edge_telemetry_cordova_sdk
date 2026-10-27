@@ -93,6 +93,8 @@ export const state = {
   userId: undefined as string | undefined,
   options: { ...DEFAULTS },
   globals: {} as Attributes,
+  /** Bumped by navigation and request starts; E25 dead taps watch it. */
+  activity: 0,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
 };
@@ -183,6 +185,14 @@ export function breadcrumb(category: string, message: string, data?: Attributes)
 export const breadcrumbsJson = () => JSON.stringify(crumbs);
 
 export const now = () => new Date().toISOString();
+
+/** Record one named event; `timestamp` defaults to now. */
+export const event = (eventName: string, attributes: Attributes = {}, timestamp = now()) => record({ type: 'event', eventName, timestamp, attributes });
+
+// P1: all digits, canonical UUID, or ≥ 20 hex.
+const ID = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{20,})$/i;
+/** P1 / P2: id-like path segments → `{id}`. */
+export const template = (path: string) => path.split('/').map((s) => (ID.test(s) ? '{id}' : s)).join('/');
 
 /** T1 hand-off: one `enqueue` with everything buffered, after `beforeSend` (P5). */
 export function flush() {
