@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap://ready; style-src 'self' 'unsafe-inline'">
+  <meta name="viewport" content="initial-scale=1, width=device-width, viewport-fit=cover">
+  <title>Edge RUM example</title>
+  <style>
+    body { font: 16px -apple-system, system-ui, sans-serif; margin: 0; padding: env(safe-area-inset-top) 16px 16px; }
+    button, a.button { display: block; width: 100%; margin: 8px 0; padding: 12px; font: inherit; text-align: center; box-sizing: border-box; }
+    #status { color: #555; min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>Edge RUM example</h1>
+  <p id="status"></p>
+  <main id="view"></main>
+  <script src="cordova.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

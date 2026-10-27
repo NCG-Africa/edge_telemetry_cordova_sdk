@@ -1,0 +1,7 @@
+{
+  "name": "edge-rum-example-scenarios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Example app only: native half of the spec Q5 scenarios.",
+  "cordova": { "id": "edge-rum-example-scenarios", "platforms": ["android", "ios"] }
+}

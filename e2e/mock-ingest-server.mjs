@@ -1,10 +1,13 @@
 import { createServer } from 'node:http';
+import { gunzipSync } from 'node:zlib';
 
 const PORT = Number(process.env.MOCK_INGEST_PORT ?? 4319);
 
 const state = {
   payloads: [],
   requests: [],
+  // Q6 R12 check: answer ingest with this status instead of 200 (POST /__status?code=503).
+  status: 200,
 };
 
 const CORS_HEADERS = {
@@ -25,7 +28,7 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -42,11 +45,15 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/collector/telemetry') {
     const apiKey = req.headers['x-api-key'];
     const contentType = req.headers['content-type'];
-    const rawBody = await readBody(req);
+    const contentEncoding = req.headers['content-encoding'];
+    const body = await readBody(req);
 
+    // The native sender always gzips (spec T5); the Q2 fake native posts plain JSON.
+    let rawBody = null;
     let parsed = null;
     let parseError = null;
     try {
+      rawBody = (contentEncoding === 'gzip' ? gunzipSync(body) : body).toString('utf8');
       parsed = JSON.parse(rawBody);
     } catch (err) {
       parseError = err.message;
@@ -58,6 +65,7 @@ const server = createServer(async (req, res) => {
       headers: {
         'x-api-key': typeof apiKey === 'string' ? apiKey : null,
         'content-type': typeof contentType === 'string' ? contentType : null,
+        'content-encoding': typeof contentEncoding === 'string' ? contentEncoding : null,
       },
       rawBody,
       parsed,
@@ -74,6 +82,12 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    writeJson(res, state.status, { ok: state.status < 300 });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/__status') {
+    state.status = Number(url.searchParams.get('code') ?? 200);
     writeJson(res, 200, { ok: true });
     return;
   }
