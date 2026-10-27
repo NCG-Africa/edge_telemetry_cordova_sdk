@@ -192,6 +192,7 @@ describe('beforeSend (P5)', () => {
     const t = await load();
     let n = 0;
     t.api.init({
+      captureScreens: false,
       beforeSend: () => {
         if (n++ === 0) throw new Error('bug');
         return undefined as unknown as null;

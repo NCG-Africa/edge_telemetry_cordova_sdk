@@ -26,6 +26,7 @@ async function load(url = '/', opts?: EdgeRumOptions) {
   const core = await import('../src/core');
   if (opts) api.init(opts);
   document.dispatchEvent(new Event('deviceready'));
+  settle(); // the initial screen
   // Flushes without moving the clock, so the 1 s rage/dead windows stay where tests put them.
   const named = (name: string) => {
     core.flush();
@@ -34,6 +35,9 @@ async function load(url = '/', opts?: EdgeRumOptions) {
   return { api, payloads, named };
 }
 
+type Loaded = Awaited<ReturnType<typeof load>>;
+/** Past screens.ts's SETTLE_MS, when URL changes are reported. */
+const settle = () => vi.advanceTimersByTime(100);
 const click = (el: Element, init: MouseEventInit = {}) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
 const html = (s: string) => {
   document.body.innerHTML = s;
@@ -59,6 +63,7 @@ describe('screen names (P2)', () => {
   it('screenName(path) overrides; a throwing or non-string one falls back', async () => {
     const t = await load('/#/orders/42', { screenName: (p) => (p.startsWith('/orders') ? 'Order' : (undefined as unknown as string)) });
     history.pushState(null, '', '/#/home');
+    settle();
     expect(t.named('navigation').map((a) => a['navigation.to_screen'])).toEqual(['Order', '/home']);
   });
 });
@@ -74,6 +79,7 @@ describe('navigation + screen.duration (E4, E5)', () => {
     history.back();
     await vi.waitUntil(() => location.pathname === '/home');
     window.dispatchEvent(new PopStateEvent('popstate')); // jsdom may or may not fire its own; deduped either way
+    settle();
     expect(t.named('navigation').map((a) => [a['navigation.from_screen'], a['navigation.to_screen'], a['navigation.method'], a['navigation.route_type']])).toEqual([
       [undefined, '/home', 'initial', 'path'],
       ['/home', '/orders/{id}', 'push', 'path'],
@@ -89,6 +95,7 @@ describe('navigation + screen.duration (E4, E5)', () => {
     const t = await load('/index.html#/home');
     location.hash = '#/cart';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
+    settle();
     expect(t.named('navigation').at(-1)).toMatchObject({ 'navigation.from_screen': '/home', 'navigation.to_screen': '/cart', 'navigation.route_type': 'hash' });
   });
 
@@ -96,7 +103,9 @@ describe('navigation + screen.duration (E4, E5)', () => {
     const t = await load('/orders/9');
     t.api.trackScreen('Order');
     history.replaceState(null, '', '/orders/9?x=1');
+    settle();
     history.pushState(null, '', '/home');
+    settle();
     expect(t.named('navigation').map((a) => [a['navigation.from_screen'], a['navigation.to_screen'], a['navigation.method']])).toEqual([
       [undefined, '/orders/{id}', 'initial'],
       ['/orders/{id}', 'Order', 'manual'],
@@ -118,13 +127,33 @@ describe('navigation + screen.duration (E4, E5)', () => {
     delete (document as { visibilityState?: unknown }).visibilityState;
     vi.advanceTimersByTime(200);
     history.pushState(null, '', '/cart');
-    expect(t.named('screen.duration').map((a) => [a['screen.exit_method'], a['screen.duration_ms']])).toEqual([['background', 300], ['push', 200]]);
+    settle();
+    expect(t.named('screen.duration').map((a) => [a['screen.exit_method'], a['screen.duration_ms']])).toEqual([['background', 400], ['push', 200]]); // 400: timed from deviceready, before load()'s settle
+  });
+
+  it.each([
+    ['trackScreen then URL', (t: Loaded) => (t.api.trackScreen('Cart'), history.pushState(null, '', '/cart/5'))],
+    ['URL then trackScreen', (t: Loaded) => (history.pushState(null, '', '/cart/5'), t.api.trackScreen('Cart'))],
+  ])('a router calling %s with auto capture on → one screen, the manual name', async (_, go) => {
+    const t = await load('/home');
+    vi.advanceTimersByTime(400);
+    go(t);
+    settle();
+    history.pushState(null, '', '/done'); // later URL changes are auto again
+    settle();
+    expect(t.named('navigation').map((a) => [a['navigation.to_screen'], a['navigation.method']])).toEqual([
+      ['/home', 'initial'],
+      ['Cart', 'manual'],
+      ['/done', 'push'],
+    ]);
+    expect(t.named('screen.duration').map((a) => [a['screen.name'], a['screen.duration_ms']])).toEqual([['/home', 500], ['Cart', 100]]); // 500: timed from deviceready, before load()'s settle
   });
 
   it('captureScreens:false → only trackScreen', async () => {
     const t = await load('/home', { captureScreens: false });
     history.pushState(null, '', '/cart');
     t.api.trackScreen('Cart');
+    settle();
     expect(t.named('navigation').map((a) => a['navigation.to_screen'])).toEqual(['Cart']);
   });
 });
@@ -160,10 +189,18 @@ describe('ui.target name chain (P4)', () => {
     b.dispatchEvent(Object.assign(new MouseEvent('click', { bubbles: true }), { pointerType: 'touch' }));
     vi.advanceTimersByTime(1000);
     expect(t.named('ui.interaction')[0]['ui.type']).toBe('tap');
+    b.dispatchEvent(new Event('touchstart', { bubbles: true })); // older WebViews: plain MouseEvent click after a touch
+    click(b);
+    vi.advanceTimersByTime(1000);
+    expect(t.named('ui.interaction')[1]['ui.type']).toBe('tap');
+    vi.advanceTimersByTime(1000);
+    click(b); // mouse, well after any touch
+    vi.advanceTimersByTime(1000);
+    expect(t.named('ui.interaction')[2]['ui.type']).toBe('click');
     t.api.init({ captureInteractions: false });
     click(b);
     vi.advanceTimersByTime(1000);
-    expect(t.named('ui.interaction')).toHaveLength(1);
+    expect(t.named('ui.interaction')).toHaveLength(3);
   });
 });
 

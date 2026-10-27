@@ -1,34 +1,42 @@
-import { breadcrumb, event, flush, live, state, template, whenReady, type Attributes } from './core';
+import { breadcrumb, event, flush, live, now, state, template, whenReady, type Attributes } from './core';
+
+// E4: a router's URL change and its `trackScreen()` are one screen, in either order, when
+// they land this close together. URL changes wait this long for a manual name to replace them.
+// ponytail: fixed window; a router that names its screen later than this double-reports.
+const SETTLE_MS = 100;
 
 // Not `screen`: the bundle may run unwrapped, where that is `window.screen`.
 // `start` unset while backgrounded: that time was already reported.
 let current: { name: string; start?: number } | undefined;
 /** The URL-derived name last reported, so one route is never reported twice (or after `trackScreen` named it). */
 let route: string | undefined;
+/** URL changes waiting out `SETTLE_MS`. */
+const waiting = new Set<ReturnType<typeof setTimeout>>();
+/** Until this time (performance.now), URL changes belong to the last `trackScreen()`. */
+let claimedUntil = -Infinity;
 
 /** The screen the user is on (P2 name), for `ui.screen`. */
 export const currentScreen = () => current?.name;
 
 /** E4 / E5: leave the current screen (one `screen.duration`) and enter `name` (one `navigation`). */
-export function enter(name: string, method: string, attrs: Attributes = {}) {
+export function enter(name: string, method: string, attrs: Attributes = {}, at = performance.now(), timestamp = now()) {
   const from = current;
-  close(method);
-  current = { name, start: performance.now() };
-  state.activity++;
+  close(method, at);
+  current = { name, start: at };
   breadcrumb('navigation', name);
   event('navigation', {
     ...attrs,
     ...(from && { 'navigation.from_screen': from.name }),
     'navigation.to_screen': name,
     'navigation.method': method,
-    'navigation.timestamp': Date.now(),
-  });
+    'navigation.timestamp': Date.parse(timestamp),
+  }, timestamp);
 }
 
 /** E5: report the time on the current screen so far. */
-function close(method: string) {
+function close(method: string, at = performance.now()) {
   if (current?.start === undefined) return;
-  event('screen.duration', { 'screen.name': current.name, 'screen.duration_ms': Math.round(performance.now() - current.start), 'screen.exit_method': method });
+  event('screen.duration', { 'screen.name': current.name, 'screen.duration_ms': Math.round(at - current.start), 'screen.exit_method': method });
   current.start = undefined;
 }
 
@@ -52,12 +60,25 @@ function auto(method: string) {
   const r = routeName();
   if (r.name === route) return;
   route = r.name;
-  enter(r.name, method, { 'navigation.route_type': r.type });
+  state.activity++; // E25: a navigation answers a tap now, not when it is reported
+  const at = performance.now();
+  if (at < claimedUntil) return;
+  // Timed from the URL change, so the wait never shows in durations or timestamps.
+  const timestamp = now();
+  const id = setTimeout(() => {
+    waiting.delete(id);
+    enter(r.name, method, { 'navigation.route_type': r.type }, at, timestamp);
+  }, SETTLE_MS);
+  waiting.add(id);
 }
 
 /** `trackScreen()`: the host's name wins for the current URL. */
 export function manual(name: string, attrs?: Attributes) {
+  for (const id of waiting) clearTimeout(id);
+  waiting.clear();
   route = routeName().name;
+  claimedUntil = performance.now() + SETTLE_MS;
+  state.activity++;
   enter(name, 'manual', attrs);
 }
 

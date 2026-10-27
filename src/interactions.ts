@@ -26,6 +26,9 @@ function nameOf(target: Element, el: Element): [string, string] {
   return [el.tagName.toLowerCase(), 'none'];
 }
 
+// E25 touch: a tap's click is often a plain MouseEvent (no `pointerType`), so a touch just before marks it.
+let touchedAt = -Infinity;
+
 let recent: { el: Element; at: number }[] = [];
 /** ≥ 3 taps on the same control within the window, this one included. */
 function rage(el: Element, at: number) {
@@ -56,7 +59,7 @@ function onTap(ev: MouseEvent) {
   const control = target.closest(`${TEXT_OK}, [data-edge-action]`);
   const el = control ?? target;
   const [label, source] = nameOf(target, el);
-  const type = (ev as PointerEvent).pointerType === 'touch' ? 'tap' : 'click';
+  const type = (ev as PointerEvent).pointerType === 'touch' || performance.now() - touchedAt < WINDOW_MS ? 'tap' : 'click';
   breadcrumb('ui', `${type} ${label}`);
   const at = now();
   const screen = currentScreen();
@@ -100,6 +103,7 @@ function drain() {
 if (live) {
   // E25: capture phase, so the tap is seen before the host's handler navigates or stops it.
   document.addEventListener('click', onTap, true);
+  document.addEventListener('touchstart', () => (touchedAt = performance.now()), { capture: true, passive: true });
   document.addEventListener('pause', drain, false);
   window.addEventListener('pagehide', drain);
   document.addEventListener('visibilitychange', () => {
