@@ -5,6 +5,7 @@
 
 const native = (action, args = []) => new Promise((ok, fail) => cordova.exec(ok, fail, 'ExampleScenarios', action, args));
 const status = (text) => (document.getElementById('status').textContent = text);
+const later = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const scenarios = {
   // Q4 gate: navigation (this route), http.request, a timed plugin call; going home closes the
@@ -26,15 +27,18 @@ const scenarios = {
   offline: () => {
     for (let i = 0; i < 30; i++) EdgeRum.track('offline.burst', { n: i, online: navigator.onLine });
   },
-  // Three taps < 1 s on a button that does nothing: ui.rage + ui.dead.
-  'rage-tap': () => {
-    const dead = document.getElementById('dead');
-    for (let i = 0; i < 3; i++) dead.click();
+  // Three taps < 1 s on a button that does nothing: ui.rage + ui.dead. Taps once the route's own
+  // re-render (hashchange) is over, and resolves after the 1 s dead window, so neither that nor the
+  // status line is the DOM change that makes the taps live.
+  'rage-tap': async () => {
+    await later(500);
+    for (let i = 0; i < 3; i++) document.getElementById('dead').click();
+    await later(1500);
   },
   'mark-ready': () => EdgeRum.markReady(),
   task: () => {
     EdgeRum.startTask('checkout');
-    setTimeout(() => EdgeRum.completeTask('checkout'), 500);
+    later(500).then(() => EdgeRum.completeTask('checkout'));
   },
   // 600 > the 500 custom-event cap: 100 drops reported as sdk.health cap.custom.
   caps: () => {

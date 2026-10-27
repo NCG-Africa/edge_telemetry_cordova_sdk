@@ -15,22 +15,22 @@ const TIMEOUT_MS = 120_000;
 
 const sh = (cmd, ...args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'] }).toString();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const uninstall = (cmd, ...args) => {
+const tryRun = (cmd, ...args) => {
   try {
-    sh(cmd, ...args); // fresh device_id + session
+    sh(cmd, ...args);
   } catch {
-    // not installed
+    // e.g. uninstalling what isn't installed
   }
 };
 
 const drivers = {
   android: {
     install() {
-      uninstall('adb', 'uninstall', APP_ID);
+      tryRun('adb', 'uninstall', APP_ID); // fresh device_id + session
       sh('adb', 'install', join(root, 'example/platforms/android/app/build/outputs/apk/debug/app-debug.apk'));
     },
     // Cold launch with the deep link as an intent extra.
-    async happy() {
+    launchHappy() {
       sh('adb', 'shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`, '--es', 'scenario', 'happy');
     },
     background: () => sh('adb', 'shell', 'input', 'keyevent', 'KEYCODE_HOME'),
@@ -39,11 +39,11 @@ const drivers = {
     install() {
       const build = join(root, 'example/platforms/ios/build/Debug-iphonesimulator');
       const app = readdirSync(build).find((f) => f.endsWith('.app'));
-      uninstall('xcrun', 'simctl', 'uninstall', 'booted', APP_ID);
+      tryRun('xcrun', 'simctl', 'uninstall', 'booted', APP_ID); // fresh device_id + session
       sh('xcrun', 'simctl', 'install', 'booted', join(build, app));
     },
     // Cold launch with the deep link as a launch argument: `simctl openurl` stops at an "Open in…?" prompt.
-    async happy() {
+    launchHappy() {
       sh('xcrun', 'simctl', 'launch', 'booted', APP_ID, '-scenario', 'happy');
     },
     background: () => sh('xcrun', 'simctl', 'launch', 'booted', 'com.apple.Preferences'),
@@ -56,7 +56,12 @@ if (!driver) {
   process.exit(2);
 }
 
-const ingest = spawn(process.execPath, [join(root, 'e2e/mock-ingest-server.mjs')], { stdio: 'inherit' });
+// Ours, not whatever else may hold :4319: wait for its own ready line, fail if it exits first.
+const ingest = spawn(process.execPath, [join(root, 'e2e/mock-ingest-server.mjs')], { stdio: ['ignore', 'pipe', 'inherit'] });
+const ready = new Promise((resolve, reject) => {
+  ingest.stdout.on('data', (d) => (process.stdout.write(d), d.includes('listening') && resolve()));
+  ingest.on('exit', (code) => reject(new Error(`mock-ingest exited (${code})`)));
+});
 
 async function requests() {
   return (await (await fetch(`${INGEST}/__requests`)).json()).requests;
@@ -67,18 +72,10 @@ const events = (reqs) => reqs.flatMap((r) => r.parsed?.events ?? []);
 const named = (reqs, name) => events(reqs).filter((e) => e.eventName === name);
 
 try {
-  for (let i = 0; ; i++) {
-    try {
-      await fetch(`${INGEST}/__health`);
-      break;
-    } catch (e) {
-      if (i > 50) throw e;
-      await sleep(100);
-    }
-  }
+  await ready;
   driver.install();
-  await driver.happy();
-  await sleep(8000); // happy runs, JS hands off (2 s)
+  driver.launchHappy();
+  await sleep(8000); // launch + deviceready + happy (~1 s), then the 2 s JS hand-off, with margin
   driver.background(); // seals the open segment (T3) and ends the app.start window
 
   const deadline = Date.now() + TIMEOUT_MS;

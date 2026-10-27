@@ -7,6 +7,9 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+  # And on PRs that change what it drives.
+  pull_request:
+    paths: ['example/**', 'e2e/device/**', 'e2e/mock-ingest-server.mjs', 'scripts/example-build.sh', '.github/workflows/device-e2e.yml']
 
 jobs:
   android:
@@ -24,7 +27,8 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          # NDK + CMake for the E12 signal handler, at AGP's defaults (else AGP fetches them mid-build).
+          packages: platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973 cmake;3.22.1
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
       - run: scripts/example-build.sh android

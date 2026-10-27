@@ -9,11 +9,12 @@ import org.json.JSONArray;
 
 /** Example app only: native scenarios + the `scenario` intent extra (`am start … --es scenario <name>`). */
 public class ExampleScenarios extends CordovaPlugin {
-    private volatile boolean listening;
-    private volatile String pending;
+    // listen (WebView thread) and deliver (UI thread) synchronize on this plugin.
+    private boolean listening;
+    private String pending;
 
     @Override
-    protected void pluginInitialize() {
+    protected synchronized void pluginInitialize() {
         pending = cordova.getActivity().getIntent().getStringExtra("scenario");
     }
 
@@ -27,9 +28,11 @@ public class ExampleScenarios extends CordovaPlugin {
     public boolean execute(String action, JSONArray args, CallbackContext cb) {
         switch (action) {
             case "listen":
-                listening = true;
-                cb.success(pending == null ? "" : pending);
-                pending = null;
+                synchronized (this) {
+                    listening = true;
+                    cb.success(pending == null ? "" : pending);
+                    pending = null;
+                }
                 return true;
             case "slow":
                 long ms = args.optLong(0);
@@ -48,6 +51,7 @@ public class ExampleScenarios extends CordovaPlugin {
                 });
                 return true;
             case "killRenderer":
+                cb.success(); // answered first: the call must not outlive the renderer as a no_callback
                 cordova.getActivity().runOnUiThread(() -> ((WebView) webView.getView()).loadUrl("chrome://crash"));
                 return true;
             default:
@@ -56,7 +60,7 @@ public class ExampleScenarios extends CordovaPlugin {
     }
 
     /** Pushed by eval, not a keep-callback: an open call would be reported as `bridge.call` no_callback. */
-    private void deliver(String scenario) {
+    private synchronized void deliver(String scenario) {
         if (!scenario.matches("[a-z-]+")) return; // deep links are untrusted input to eval
         if (!listening) {
             pending = scenario;

@@ -25,11 +25,13 @@ Every batch must also have: `Content-Encoding: gzip`, `sdk.name = cordova`, `con
 | `renderer-kill` | Tap it | `app.crash` with `cause=WebViewTerminated`, `webview.detected_by=callback`, `screen_name=/renderer-kill` (on iOS, if the page reloads instead, open the app again: `detected_by=inference`) | [ ] | [ ] |
 | `hang` | Tap it, keep the app open for 6 s | Android: `app.anr` (≥ 5 s) and `app.hang`; iOS: `app.hang` (≥ 2 s) | [ ] | [ ] |
 | `slow-bridge` | Tap it | `bridge.call` with `bridge.outcome=slow`, `bridge.duration_ms` ≥ 1500 | [ ] | [ ] |
-| `offline` | Turn on airplane mode, tap it, background the app, turn airplane mode off, open the app | Nothing arrives while offline; afterwards the 30 `custom_event`s (`event.name=offline.burst`) arrive once each (offline replay, R12) | [ ] | [ ] |
+| `offline` | No toggle in the app: turn on the phone's airplane mode, tap it, background the app, turn airplane mode off, open the app | Nothing arrives while offline; afterwards the 30 `custom_event`s (`event.name=offline.burst`) arrive once each (offline replay, R12) | [ ] | [ ] |
 | `rage-tap` | Tap it (or tap “Does nothing” three times fast) | `ui.interaction` with `ui.rage=true` and `ui.dead=true` | [ ] | [ ] |
 | `mark-ready` | Kill the app, open it, tap it within 30 s | That launch's `app.start` has `app.start.mark_ready_ms` | [ ] | [ ] |
 | `task` | Tap it | `task.complete` with `task.name=checkout`, `task.outcome` completed, `span.duration_ms` ≈ 500 | [ ] | [ ] |
-| `caps` | Tap it | 500 `custom_event`s with `event.name=caps.burst`, and `sdk.health` with `cap.custom=100` | [ ] | [ ] |
+| `caps` | Tap it | `custom_event`s stop at the per-session cap (500, shared with `task.complete` and host measures), and `sdk.health` counts the rest as `cap.custom` (100 in a session with nothing else) | [ ] | [ ] |
+| 5xx retry (R12) | `curl -X POST 'localhost:4319/__status?code=503'`, tap `task`, background the app; then `curl -X POST 'localhost:4319/__status?code=200'` and open the app | While 503: the same batch is retried (several requests in `__requests`). After: it arrives and is accepted once | [ ] | [ ] |
+| 4xx drop (R12) | `curl -X POST 'localhost:4319/__status?code=400'`, tap `task`, background; set `code=200`, tap `task`, background | The 400 batch is not retried; the next accepted batch has `sdk.health` with `rejected` ≥ 1 | [ ] | [ ] |
 
 ## Deep links
 

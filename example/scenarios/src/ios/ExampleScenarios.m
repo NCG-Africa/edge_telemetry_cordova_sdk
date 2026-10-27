@@ -45,6 +45,8 @@
 }
 
 - (void)killRenderer:(CDVInvokedUrlCommand *)command {
+    // Answered first: the call must not outlive the content process as a no_callback.
+    [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK] callbackId:command.callbackId];
     // ponytail: private WebKit API, fine in a test app; never ship this.
     WKWebView *web = (WKWebView *)self.webViewEngine.engineWebView;
     SEL kill = NSSelectorFromString(@"_killWebContentProcess");

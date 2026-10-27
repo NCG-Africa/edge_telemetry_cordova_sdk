@@ -6,6 +6,8 @@ const PORT = Number(process.env.MOCK_INGEST_PORT ?? 4319);
 const state = {
   payloads: [],
   requests: [],
+  // Q6 R12 check: answer ingest with this status instead of 200 (POST /__status?code=503).
+  status: 200,
 };
 
 const CORS_HEADERS = {
@@ -80,6 +82,12 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    writeJson(res, state.status, { ok: state.status < 300 });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/__status') {
+    state.status = Number(url.searchParams.get('code') ?? 200);
     writeJson(res, 200, { ok: true });
     return;
   }

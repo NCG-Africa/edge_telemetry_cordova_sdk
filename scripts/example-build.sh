@@ -5,7 +5,7 @@
 # device set it to http://<laptop LAN ip>:4319/collector/telemetry.
 set -euo pipefail
 
-platform="$1"
+platform="${1:-}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cordova="npx --yes cordova@13"
 
@@ -19,6 +19,7 @@ endpoint="${EDGE_RUM_ENDPOINT:-http://$host:4319/collector/telemetry}"
 # By local path, as unpacked from `npm pack`: the repo root holds example/ itself, which cordova would copy into
 # example/plugins/ recursively.
 pack="$(mktemp -d)"
+trap 'rm -rf "$pack"' EXIT
 (cd "$root" && npm pack --pack-destination "$pack" >/dev/null)
 tar xzf "$pack"/*.tgz -C "$pack"
 
