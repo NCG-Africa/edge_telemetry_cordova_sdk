@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget id="com.nathanclaire.rum.example" version="1.0.0" xmlns="http://www.w3.org/ns/widgets"
+        xmlns:android="http://schemas.android.com/apk/res/android">
+  <name>EdgeRumExample</name>
+  <description>Edge RUM example: one button + deep link per scenario (spec Q5).</description>
+  <content src="index.html" />
+  <allow-intent href="http://*/*" />
+  <allow-intent href="https://*/*" />
+  <!-- Spec K5 floor; cordova-ios 8 defaults apps to 13.0. -->
+  <preference name="deployment-target" value="14.0" />
+
+  <!-- Ingest over plain http to the mock (emulator 10.0.2.2, simulator localhost, a laptop on the LAN). -->
+  <platform name="android">
+    <edit-config file="app/src/main/AndroidManifest.xml" mode="merge" target="/manifest/application">
+      <application android:usesCleartextTraffic="true" />
+    </edit-config>
+  </platform>
+  <platform name="ios">
+    <edit-config file="*-Info.plist" mode="merge" target="NSAppTransportSecurity">
+      <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true />
+      </dict>
+    </edit-config>
+  </platform>
+</widget>

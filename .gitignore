@@ -1,6 +1,6 @@
 node_modules/
-www/
-types/
+/www/
+/types/
 *.tgz
 .build/
 Package.resolved

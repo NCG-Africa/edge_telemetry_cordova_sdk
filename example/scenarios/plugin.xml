@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example app only: the native half of the spec Q5 scenarios (crash, hang, renderer kill, slow call)
+     and the deep links (Android intent extra `scenario`, iOS edgerumexample://<scenario>). -->
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0" id="edge-rum-example-scenarios" version="1.0.0">
+  <name>Edge RUM example scenarios</name>
+
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="ExampleScenarios">
+        <param name="android-package" value="com.nathanclaire.rum.example.ExampleScenarios" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+    <source-file src="src/android/ExampleScenarios.java" target-dir="src/com/nathanclaire/rum/example" />
+  </platform>
+
+  <platform name="ios">
+    <config-file target="config.xml" parent="/*">
+      <feature name="ExampleScenarios">
+        <param name="ios-package" value="ExampleScenarios" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+    <config-file target="*-Info.plist" parent="CFBundleURLTypes">
+      <array>
+        <dict>
+          <key>CFBundleURLSchemes</key>
+          <array><string>edgerumexample</string></array>
+        </dict>
+      </array>
+    </config-file>
+    <header-file src="src/ios/ExampleScenarios.h" />
+    <source-file src="src/ios/ExampleScenarios.m" />
+  </platform>
+</plugin>

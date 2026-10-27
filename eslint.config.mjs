@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['www/', 'types/', 'node_modules/', '.build/', 'android/build/', 'test-results/', 'playwright-report/'] },
+  { ignores: ['www/', 'types/', 'node_modules/', '.build/', 'android/build/', 'test-results/', 'playwright-report/', 'example/platforms/', 'example/plugins/', 'example/node_modules/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -24,6 +24,17 @@ export default tseslint.config(
     files: ['e2e/*.mjs'],
     languageOptions: { globals: { URL: 'readonly', process: 'readonly', console: 'readonly', Buffer: 'readonly' } },
     rules: { 'no-console': 'off' },
+  },
+  {
+    // Q4 device driver (Node).
+    files: ['e2e/device/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', setTimeout: 'readonly' } },
+    rules: { 'no-console': 'off' },
+  },
+  {
+    // Q5 example app (browser, Cordova WebView).
+    files: ['example/www/*.js'],
+    languageOptions: { globals: { window: 'readonly', document: 'readonly', location: 'readonly', navigator: 'readonly', fetch: 'readonly', setTimeout: 'readonly' } },
   },
   {
     files: ['e2e/*.js'],
