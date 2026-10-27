@@ -97,6 +97,8 @@ export const state = {
   activity: 0,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
+  /** Called as a screen window ends (screen left or app hidden); E18 / E20 close their windows. */
+  onScreenLeave: (() => {}) as (screen?: string) => void,
 };
 
 /** A3: one recent app action, kept for crash context. Native mirrors these into its own ring. */

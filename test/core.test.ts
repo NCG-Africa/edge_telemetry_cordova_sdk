@@ -57,7 +57,7 @@ describe('pre-deviceready buffer (A4)', () => {
     t.api.track('b');
     expect(t.calls).toEqual([]);
     t.ready();
-    expect(t.calls.map((c) => c.action)).toEqual(['subscribe', 'getState', 'enqueue']);
+    expect(t.calls.map((c) => c.action)).toEqual(['subscribe', 'getState', 'enqueue', 'markPhase']); // A5 deviceready mark
     expect(t.calls[2].args).toEqual([{ events: expect.any(Array), breadcrumbs: [] }]);
     expect(t.events().map((e) => e.attributes['event.name'])).toEqual(['a', 'b']);
     expect(t.events()[0].attributes['session.id']).toBe('s1');
@@ -79,7 +79,7 @@ describe('pre-deviceready buffer (A4)', () => {
     t.api.identify({ id: 'u1' });
     t.api.track('a');
     t.ready();
-    expect(t.calls.map((c) => c.action)).toEqual(['subscribe', 'getState', 'identify', 'enqueue']);
+    expect(t.calls.map((c) => c.action)).toEqual(['subscribe', 'getState', 'identify', 'enqueue', 'markPhase']);
     expect(t.events()[0].attributes['user.id']).toBe('u1');
   });
 
@@ -402,7 +402,7 @@ describe('API methods (C4)', () => {
   it('markReady → markPhase', async () => {
     const t = await started();
     t.api.markReady();
-    expect(t.calls.find((c) => c.action === 'markPhase')?.args).toEqual([{ phase: 'markReady', ts: expect.any(Number) }]);
+    expect(t.calls.filter((c) => c.action === 'markPhase').at(-1)?.args).toEqual([{ phase: 'markReady', ts: expect.any(Number) }]);
   });
 
   it('setAttribute / removeAttribute → global attrs on JS events', async () => {

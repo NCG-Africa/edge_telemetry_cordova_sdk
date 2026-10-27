@@ -2,6 +2,7 @@ import { call, DEFAULTS, discard, event, live, now, record, setEnabled, state, w
 import { crash } from './errors';
 import './interactions';
 import './network';
+import './perf';
 import { manual } from './screens';
 
 // Self-import: the global's type is this module's exports, so typings never drift from the bundle.
