@@ -234,7 +234,7 @@ describe('Web Vitals (E21)', () => {
     let t = await load();
     vitals.onLCP({ name: 'LCP', value: 1234.5, rating: 'good' });
     vitals.onCLS({ name: 'CLS', value: 0.12, rating: 'needs-improvement' });
-    expect(t.named('LCP')).toMatchObject([{ type: 'metric', value: 1234.5, attributes: { 'metric.unit': 'ms', 'metric.rating': 'good', 'metric.screen': '/' } }]);
+    expect(t.named('LCP')).toMatchObject([{ type: 'metric', value: 1234.5, attributes: { 'metric.unit': 'ms', 'metric.rating': 'good', 'screen.name': '/' } }]);
     expect(t.named('CLS')[0].attributes['metric.unit']).toBe('score');
     t = await load({ opts: { captureVitals: false } });
     expect(Object.keys(vitals)).toEqual([]);

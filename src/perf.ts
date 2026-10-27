@@ -45,7 +45,7 @@ function observeVitals() {
       metricName: m.name,
       value: m.value,
       timestamp: now(),
-      attributes: { 'metric.unit': m.name === 'CLS' ? 'score' : 'ms', 'metric.rating': m.rating, ...(screen && { 'metric.screen': screen }) },
+      attributes: { 'metric.unit': m.name === 'CLS' ? 'score' : 'ms', 'metric.rating': m.rating, ...(screen && { 'screen.name': screen }) },
     });
     // LCP / CLS / INP are final as the page hides, after core's hidden flush.
     if (document.visibilityState === 'hidden') flush();
