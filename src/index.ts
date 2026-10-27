@@ -1,4 +1,5 @@
-import { call, DEFAULTS, discard, live, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
+import { breadcrumb, call, DEFAULTS, discard, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
+import { crash } from './errors';
 
 // Self-import: the global's type is this module's exports, so typings never drift from the bundle.
 import type * as EdgeRumModule from './index';
@@ -30,7 +31,6 @@ declare global {
 /** Version of this plugin, e.g. `1.0.0`. */
 export const sdkVersion: string = __SDK_VERSION__;
 
-const now = () => new Date().toISOString();
 const event = (eventName: string, attributes: Attributes = {}) => record({ type: 'event', eventName, timestamp: now(), attributes });
 
 /**
@@ -92,6 +92,7 @@ export function trackScreen(name: string, attrs?: Attributes): void {
   if (typeof name !== 'string' || !name) return;
   const from = screen;
   screen = name;
+  breadcrumb('navigation', name);
   event('navigation', {
     ...attrs,
     ...(from !== undefined && { 'navigation.from_screen': from }),
@@ -103,17 +104,7 @@ export function trackScreen(name: string, attrs?: Attributes): void {
 
 /** Report an error the app caught. */
 export function captureError(err: unknown, attrs?: Attributes): void {
-  const e = err instanceof Error ? err : new Error(String(err));
-  event('app.crash', {
-    ...attrs,
-    message: e.message,
-    exception_type: e.name,
-    ...(e.stack && { stacktrace: e.stack }),
-    handled: true,
-    is_fatal: false,
-    runtime: 'webview',
-    ...(state.options.release && { release: state.options.release }),
-  });
+  crash(err, true, { attrs });
 }
 
 // E29, copied from edge_telemetry_flutter: a start costs nothing on the wire; one
