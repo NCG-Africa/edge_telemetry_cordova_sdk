@@ -13,13 +13,16 @@ const originalConsole = Object.fromEntries(METHODS.map((m) => [m, console[m]]));
 async function load() {
   vi.resetModules();
   const payloads: Payload[] = [];
+  // `held`: when set, enqueue callbacks wait here so a test can settle them out of order.
+  const native = { held: undefined as { ok: Ok; fail: Ok }[] | undefined };
   (globalThis as { cordova?: unknown }).cordova = {
     platformId: 'android',
-    exec(ok: Ok, _fail: Ok, _service: string, action: string, args: unknown[]) {
+    exec(ok: Ok, fail: Ok, _service: string, action: string, args: unknown[]) {
       if (action === 'getState') ok({ enabled: true, sessionId: 's1' });
       else if (action === 'enqueue') {
         payloads.push(args[0] as Payload);
-        ok();
+        if (native.held) native.held.push({ ok, fail });
+        else ok();
       } else if (action !== 'subscribe') ok();
     },
   };
@@ -32,7 +35,7 @@ async function load() {
     vi.advanceTimersByTime(2000);
     return payloads;
   };
-  return { api, errors, payloads, events, crashes, flushed };
+  return { api, errors, native, payloads, events, crashes, flushed };
 }
 
 beforeEach(() => {
@@ -89,6 +92,12 @@ describe('JS errors (E9–E11)', () => {
     expect(t.crashes()[0].attributes).toMatchObject({ message: 'Script error.', exception_type: 'Error', stacktrace: 'at app:///a.js:3:7', handled: false });
   });
 
+  it('non-Error throw → the thrown value as message', async () => {
+    const t = await load();
+    window.dispatchEvent(new ErrorEvent('error', { error: 'plain', message: 'Uncaught plain' }));
+    expect(t.crashes()[0].attributes).toMatchObject({ message: 'plain', exception_type: 'Error' });
+  });
+
   it('unhandled rejection → fatal app.crash; non-Error reasons kept as text', async () => {
     const t = await load();
     window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new RangeError('nope') }));
@@ -129,6 +138,13 @@ describe('JS errors (E9–E11)', () => {
     expect(t.crashes()[1].attributes).toMatchObject({ message: 'just text', exception_type: 'ConsoleError' });
   });
 
+  it('a beforeSend that logs errors does not loop', async () => {
+    const t = await load();
+    t.api.init({ captureConsoleErrors: true, beforeSend: (e) => (console.error('hook saw', e.eventName), e) });
+    console.error('once');
+    expect(t.crashes()).toHaveLength(1);
+  });
+
   it('still calls the original console method', async () => {
     const seen: unknown[][] = [];
     console.warn = (...a: unknown[]) => seen.push(a);
@@ -151,6 +167,31 @@ describe('breadcrumbs (A3)', () => {
     console.info('later');
     t.api.track('x');
     expect(t.flushed()[1].breadcrumbs.map((b) => b.message)).toEqual(['later']);
+  });
+
+  it('a failed hand-off resends exactly its own crumbs, even with a later one in flight', async () => {
+    const t = await load();
+    t.native.held = [];
+    console.log('c1');
+    t.flushed(); // A: c1
+    console.log('c2');
+    t.flushed(); // B: c2
+    const [a, b] = t.native.held;
+    b.ok();
+    a.fail();
+    t.native.held = undefined;
+    console.log('c3');
+    expect(t.flushed()[2].breadcrumbs.map((c) => c.message)).toEqual(['c1', 'c3']);
+  });
+
+  it('disable() forgets the ring', async () => {
+    const t = await load();
+    console.log('private');
+    t.api.disable();
+    t.api.enable();
+    t.api.captureError(new Error('x'));
+    expect(t.crashes()[0].attributes['crash.breadcrumbs']).toBe('[]');
+    expect(t.payloads.flatMap((p) => p.breadcrumbs)).toEqual([]);
   });
 
   it('crash carries the ring, oldest first, capped at 50', async () => {

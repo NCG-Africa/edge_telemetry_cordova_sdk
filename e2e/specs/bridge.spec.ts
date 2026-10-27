@@ -80,6 +80,6 @@ test('a thrown error reaches mock-ingest as a fatal app.crash with breadcrumbs',
   await expect.poll(crash, { timeout: 5_000 }).toMatchObject({
     attributes: { message: 'harness boom', exception_type: 'TypeError', handled: false, is_fatal: true, runtime: 'webview' },
   });
-  const a = (await crash())?.attributes ?? {};
-  expect(JSON.parse(a['crash.breadcrumbs'] as string)).toEqual([expect.objectContaining({ category: 'console', message: 'before the throw' })]);
+  const attrs = (await crash())?.attributes ?? {};
+  expect(JSON.parse(attrs['crash.breadcrumbs'] as string)).toEqual([expect.objectContaining({ category: 'console', message: 'before the throw' })]);
 });

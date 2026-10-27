@@ -1,4 +1,4 @@
-import { breadcrumb, breadcrumbsJson, live, record, state, type Attributes } from './core';
+import { breadcrumb, breadcrumbsJson, live, now, record, state, type Attributes } from './core';
 
 // Y2: the origins Cordova serves www/ from. Path kept, query/hash dropped, line:col kept.
 // The lazy path stops at the first `:line(:col)` that ends the frame. Ports aren't ours.
@@ -21,16 +21,16 @@ const text = (v: unknown) => {
  * E9–E11: one `app.crash`. `where` is a fallback frame when there is no Error to read a stack
  * from; `type` names non-Error throws.
  */
-export function crash(err: unknown, handled: boolean, attrs?: Attributes, where?: string, type = 'Error') {
+export function crash(err: unknown, handled: boolean, { attrs, where, type = 'Error' }: { attrs?: Attributes; where?: string; type?: string } = {}) {
   const e = err instanceof Error ? err : undefined;
   const stack = e?.stack || where;
   record({
     type: 'event',
     eventName: 'app.crash',
-    timestamp: new Date().toISOString(),
+    timestamp: now(),
     attributes: {
       ...attrs,
-      message: e ? e.message : text(err),
+      message: normaliseStack(e ? e.message : text(err)), // Y2: no raw copy
       exception_type: e ? e.name : type,
       ...(stack && { stacktrace: normaliseStack(stack) }),
       handled,
@@ -46,25 +46,31 @@ if (live) {
   window.addEventListener('error', (ev) => {
     if (!state.options.captureErrors) return;
     const where = ev.filename ? `at ${ev.filename}:${ev.lineno}:${ev.colno}` : undefined;
-    crash(ev.error instanceof Error ? ev.error : ev.message, false, {}, where);
+    // A non-Error throw (`throw 'x'`) is the value itself; cross-origin "Script error." has none.
+    crash(ev.error ?? ev.message, false, { where });
   });
   window.addEventListener('unhandledrejection', (ev) => {
-    if (state.options.captureErrors) crash(ev.reason, false, {}, undefined, 'UnhandledRejection');
+    if (state.options.captureErrors) crash(ev.reason, false, { type: 'UnhandledRejection' });
   });
 
   // A3 / E11: console.* → breadcrumbs; console.error → handled crash only when opted in.
+  // `busy`: a host `beforeSend` that logs would otherwise re-enter crash → flush → hook forever.
+  let busy = false;
   for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     /* eslint-disable no-console -- wrapping the host's console, not writing to it */
     const original = console[level];
     console[level] = function (...args: unknown[]) {
-      try {
-        if (level === 'error' && state.options.captureConsoleErrors) {
-          const err = args.find((a) => a instanceof Error);
-          crash(err ?? args.map(text).join(' '), true, {}, undefined, 'ConsoleError');
+      if (!busy) {
+        busy = true;
+        try {
+          const line = args.map(text).join(' ');
+          if (level === 'error' && state.options.captureConsoleErrors) crash(args.find((a) => a instanceof Error) ?? line, true, { type: 'ConsoleError' });
+          breadcrumb('console', line, { level });
+        } catch {
+          // Capture must never break the host's logging.
+        } finally {
+          busy = false;
         }
-        breadcrumb('console', args.map(text).join(' '), { level });
-      } catch {
-        // Capture must never break the host's logging.
       }
       return original.apply(this, args);
     };
