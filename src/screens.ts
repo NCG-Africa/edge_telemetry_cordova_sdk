@@ -35,6 +35,8 @@ export function enter(name: string, method: string, attrs: Attributes = {}, at =
 
 /** E5: report the time on the current screen so far. */
 function close(method: string, at = performance.now()) {
+  // E18 / E20: the first screen inherits what came before it; with no screens, hiding still ends the window.
+  if (current || method === 'background') state.onScreenLeave(current?.name);
   if (current?.start === undefined) return;
   event('screen.duration', { 'screen.name': current.name, 'screen.duration_ms': Math.round(at - current.start), 'screen.exit_method': method });
   current.start = undefined;
