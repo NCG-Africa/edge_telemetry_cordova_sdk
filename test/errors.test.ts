@@ -28,6 +28,7 @@ async function load() {
   };
   const api = await import('../src/index');
   const errors = await import('../src/errors');
+  api.init({ captureScreens: false }); // auto screens are ui.test.ts's; keep these payloads to what each test makes
   document.dispatchEvent(new Event('deviceready'));
   const events = () => payloads.flatMap((p) => p.events);
   const crashes = () => events().filter((e) => e.eventName === 'app.crash');

@@ -2,7 +2,7 @@ import { breadcrumb, live, now, record, state, whenReady, type Attributes } from
 
 // P1: all digits, canonical UUID, or ≥ 20 hex.
 const ID = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{20,})$/i;
-const template = (path: string) => path.split('/').map((s) => (ID.test(s) ? '{id}' : s)).join('/');
+export const template = (path: string) => path.split('/').map((s) => (ID.test(s) ? '{id}' : s)).join('/');
 
 const absolute = (url: string) => {
   try {
@@ -75,6 +75,7 @@ function patchFetch() {
   const original = window.fetch;
   if (!original) return;
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+    state.activity++;
     const req = typeof Request !== 'undefined' && input instanceof Request ? input : undefined;
     // Resolved, as XHR's: ignore rules see one form whichever API the host used.
     const url = req ? req.url : absolute(String(input))?.href ?? String(input);
@@ -121,6 +122,7 @@ function patchXhr() {
     return setRequestHeader.call(this, name, value);
   };
   proto.send = function (this: Xhr, body?: Document | XMLHttpRequestBodyInit | null) {
+    state.activity++;
     const p = this.__edgeRum;
     if (p && capturing(p.url)) {
       const t = p.hasTrace ? undefined : trace(p.url);

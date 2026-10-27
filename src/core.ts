@@ -93,6 +93,8 @@ export const state = {
   userId: undefined as string | undefined,
   options: { ...DEFAULTS },
   globals: {} as Attributes,
+  /** Bumped by navigation and request starts; E25 dead taps watch it. */
+  activity: 0,
   /** Called when native reports a new session (E29 abandons open tasks). */
   onSessionChange: () => {},
 };

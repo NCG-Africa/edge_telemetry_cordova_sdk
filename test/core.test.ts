@@ -27,6 +27,7 @@ async function load({ platformId = 'android', state = {} as object, cordova = tr
     : undefined;
   const api = await import('../src/index');
   const core = await import('../src/core');
+  api.init({ captureScreens: false }); // auto screens are ui.test.ts's; keep these payloads to what each test makes
   const payloads = () => calls.filter((c) => c.action === 'enqueue').map((c) => c.args[0] as { events: EdgeRumEvent[]; drops?: Record<string, number> });
   const enqueues = () => payloads().map((p) => p.events);
   return {
@@ -178,7 +179,7 @@ describe('exec failure (A4, T8)', () => {
 describe('beforeSend (P5)', () => {
   it('null drops the event and counts it', async () => {
     const t = await load();
-    t.api.init({ beforeSend: (e) => (e.attributes['event.name'] === 'secret' ? null : e) });
+    t.api.init({ captureScreens: false, beforeSend: (e) => (e.attributes['event.name'] === 'secret' ? null : e) });
     t.ready();
     t.api.track('secret');
     t.api.track('ok');
@@ -207,6 +208,7 @@ describe('beforeSend (P5)', () => {
   it('re-stamps session/sequence keys and the event name after the hook', async () => {
     const t = await load();
     t.api.init({
+      captureScreens: false,
       beforeSend: (e) => {
         delete e.attributes['session.id'];
         e.attributes['app.version'] = 'forged';
@@ -224,7 +226,7 @@ describe('beforeSend (P5)', () => {
 
   it('cannot drop the drop counts themselves', async () => {
     const t = await load();
-    t.api.init({ beforeSend: () => null });
+    t.api.init({ captureScreens: false, beforeSend: () => null });
     t.ready();
     t.api.track('a');
     vi.advanceTimersByTime(2000);
@@ -341,7 +343,7 @@ describe('API methods (C4)', () => {
     const t = await started();
     t.api.trackScreen('home');
     t.api.trackScreen('cart', { tab: 2 });
-    const [a, b] = t.flushed();
+    const [a, b] = t.flushed().filter((e) => e.eventName === 'navigation');
     expect(a.attributes).toMatchObject({ 'navigation.to_screen': 'home', 'navigation.method': 'manual' });
     expect(a.attributes['navigation.from_screen']).toBeUndefined();
     expect(b.attributes).toMatchObject({ 'navigation.from_screen': 'home', 'navigation.to_screen': 'cart', tab: 2 });

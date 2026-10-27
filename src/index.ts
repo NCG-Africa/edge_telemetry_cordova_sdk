@@ -1,6 +1,8 @@
-import { breadcrumb, call, DEFAULTS, discard, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
+import { call, DEFAULTS, discard, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
 import { crash } from './errors';
+import './interactions';
 import './network';
+import { manual } from './screens';
 
 // Self-import: the global's type is this module's exports, so typings never drift from the bundle.
 import type * as EdgeRumModule from './index';
@@ -86,21 +88,9 @@ export function time(name: string): Timer {
   };
 }
 
-let screen: string | undefined;
-
 /** Report a screen change by name; use with `init({ captureScreens: false })` from a router. */
 export function trackScreen(name: string, attrs?: Attributes): void {
-  if (typeof name !== 'string' || !name) return;
-  const from = screen;
-  screen = name;
-  breadcrumb('navigation', name);
-  event('navigation', {
-    ...attrs,
-    ...(from !== undefined && { 'navigation.from_screen': from }),
-    'navigation.to_screen': name,
-    'navigation.method': 'manual',
-    'navigation.timestamp': Date.now(),
-  });
+  if (typeof name === 'string' && name) manual(name, attrs);
 }
 
 /** Report an error the app caught. */
