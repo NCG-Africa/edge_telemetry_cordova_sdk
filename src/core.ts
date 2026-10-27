@@ -79,6 +79,7 @@ type Exec = (ok: (r: unknown) => void, fail: (e: unknown) => void, service: stri
 const FLUSH_MS = 2000; // T1
 const FLUSH_AT = 20; // T1
 const BUFFER_CAP = 500; // A4
+const CRUMBS = 50; // A3
 
 // Captured at load: native is whatever cordova this bundle was loaded under.
 const cordova = (globalThis as { cordova?: { platformId?: string; exec?: Exec } }).cordova;
@@ -96,7 +97,12 @@ export const state = {
   onSessionChange: () => {},
 };
 
+/** A3: one recent app action, kept for crash context. Native mirrors these into its own ring. */
+export interface Breadcrumb { category: string; message: string; timestamp: string; [key: string]: unknown }
+
 let buffer: EdgeRumEvent[] = [];
+const crumbs: Breadcrumb[] = [];
+let freshCrumbs = 0; // newest crumbs not yet handed to native
 const drops: Record<string, number> = {};
 const pending: (() => void)[] = [];
 let consentOverride: boolean | undefined;
@@ -133,6 +139,7 @@ export function setEnabled(on: boolean) {
 /** Drop everything buffered, uncounted (consent / reset, not loss). */
 export function discard() {
   buffer = [];
+  crumbs.length = freshCrumbs = 0;
 }
 
 function count(reason: string, n = 1) {
@@ -150,8 +157,25 @@ export function record(e: EdgeRumEvent) {
   if (!state.ready) return;
   // T1: a crash may be the page's last act, so it doesn't wait for the timer.
   if (e.eventName === 'app.crash' || buffer.length >= FLUSH_AT) flush();
-  else if (timer === undefined) timer = setTimeout(flush, FLUSH_MS);
+  else schedule();
 }
+
+function schedule() {
+  if (state.ready && timer === undefined) timer = setTimeout(flush, FLUSH_MS);
+}
+
+/** A3: add to the JS ring (last 50: navigation, taps, http, `console.*`). */
+export function breadcrumb(category: string, message: string, data?: Attributes) {
+  if (!live || !state.enabled) return;
+  crumbs.push({ ...data, category, message: message.slice(0, 256), timestamp: new Date().toISOString() });
+  if (crumbs.length > CRUMBS) crumbs.shift();
+  freshCrumbs = Math.min(freshCrumbs + 1, CRUMBS);
+  // Shipped even without events, so native's mirror is current if the app dies natively.
+  schedule();
+}
+
+/** The ring as `crash.breadcrumbs` carries it: JSON, oldest first. */
+export const breadcrumbsJson = () => JSON.stringify(crumbs);
 
 /** T1 hand-off: one `enqueue` with everything buffered, after `beforeSend` (P5). */
 export function flush() {
@@ -178,13 +202,19 @@ export function flush() {
   // Cleared only once native has them, so a failed exec resends them.
   const sent = { ...drops };
   const hasDrops = Object.keys(sent).length > 0;
-  if (!events.length && !hasDrops) return;
-  exec('enqueue', [{ events, breadcrumbs: [], ...(hasDrops && { drops: sent }) }], () => {
+  if (!events.length && !hasDrops && !freshCrumbs) return;
+  // Marked shipped up front so an overlapping flush can't mirror them twice; a failure re-marks them.
+  const newCrumbs = crumbs.slice(crumbs.length - freshCrumbs);
+  freshCrumbs = 0;
+  exec('enqueue', [{ events, breadcrumbs: newCrumbs, ...(hasDrops && { drops: sent }) }], () => {
     for (const [k, n] of Object.entries(sent)) {
       drops[k] -= n;
       if (!drops[k]) delete drops[k];
     }
-  }, () => count('js_exec_failed', events.length)); // A4: no JS fallback sender
+  }, () => {
+    if (events.length) count('js_exec_failed', events.length); // A4: no JS fallback sender
+    freshCrumbs = Math.min(freshCrumbs + newCrumbs.length, crumbs.length);
+  });
 }
 
 function applyNativeState(s: unknown) {

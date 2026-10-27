@@ -63,3 +63,23 @@ test('a custom event reaches mock-ingest', async ({ page, request }) => {
     attributes: { 'event.name': 'checkout', plan: 'pro', tenant: 'acme', 'session.id': 'harness-session', 'user.id': 'u1' },
   });
 });
+
+test('a thrown error reaches mock-ingest as a fatal app.crash with breadcrumbs', async ({ page, request }) => {
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event('deviceready'));
+    console.warn('before the throw');
+    setTimeout(() => {
+      throw new TypeError('harness boom');
+    });
+  });
+  const crash = async () => {
+    const { payloads } = (await (await request.get(`${INGEST}/__payloads`)).json()) as { payloads: Batch[] };
+    return payloads.flatMap((p) => p.events).find((e) => e.eventName === 'app.crash');
+  };
+  // T1: a crash is handed off at once, no 2 s wait.
+  await expect.poll(crash, { timeout: 5_000 }).toMatchObject({
+    attributes: { message: 'harness boom', exception_type: 'TypeError', handled: false, is_fatal: true, runtime: 'webview' },
+  });
+  const a = (await crash())?.attributes ?? {};
+  expect(JSON.parse(a['crash.breadcrumbs'] as string)).toEqual([expect.objectContaining({ category: 'console', message: 'before the throw' })]);
+});
