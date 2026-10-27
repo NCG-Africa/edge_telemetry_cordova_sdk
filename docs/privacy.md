@@ -9,7 +9,7 @@
 - **Device id**: a random UUID kept by the plugin (Android SharedPreferences, iOS Keychain). Not an advertising or hardware id.
 - **User**: nothing, until you call `identify()`. `id` is then sent on every event; `name`, `email`, `phone` only in one `user.profile.update` each time they change.
 
-Error messages and stack traces are sent as they are; the plugin does not scrub them. Use `beforeSend` if yours may contain personal data.
+Error messages and stacks are sent as they are; the plugin does not scrub them. Use `beforeSend` if yours may contain personal data.
 
 ```html
 <div data-edge-private>
@@ -35,4 +35,4 @@ Native events (native crashes, launch time, lifecycle, memory, network, sessions
 
 ## Storage
 
-Unsent events are kept in app storage excluded from backups (Android `filesDir/edge_rum/`, iOS Application Support), at most 5 MB or 200 batches, and for at most 7 days.
+Unsent events are kept in app storage (Android `filesDir/edge_rum/`, iOS Application Support excluded from backups), at most 5 MB or 200 batches, and for at most 7 days.

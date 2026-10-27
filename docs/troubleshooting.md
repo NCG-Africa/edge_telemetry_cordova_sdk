@@ -4,7 +4,7 @@ Turn on JS warnings first: `init({ debug: true })`. Native errors are always log
 
 ## Nothing arrives
 
-- **Key or endpoint missing.** Check `config.xml` in the built platform for `EDGE_RUM_API_KEY` / `EDGE_RUM_ENDPOINT`. If they are missing, events are kept on disk until `init({ apiKey, endpoint })` supplies them. To change install-time variables: `cordova plugin rm @nathanclaire/rum-cordova` then add it again with the new `--variable`s.
+- **Key or endpoint missing.** Check `config.xml` in the built platform for `EDGE_RUM_API_KEY` / `EDGE_RUM_ENDPOINT`. If they are `unset`, events are kept on disk until `init({ apiKey, endpoint })` supplies them. To change install-time variables: `cordova plugin rm @nathanclaire/rum-cordova` then add it again with the new `--variable`s.
 - **Endpoint is used exactly as given.** It must be the full ingest URL, including path.
 - **Batches leave on a schedule**, not per event: at 50 events, 30 s after the first event, or when the app goes to the background. Background the app to send now.
 - **Capture is off.** `EDGE_RUM_ENABLED=false` (opt-in mode) or an earlier `disable()` is remembered until `enable()`.

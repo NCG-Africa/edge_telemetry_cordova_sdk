@@ -1,8 +1,8 @@
 name: Release
 
-# Spec V2. Copied from edge_telemetry_react_native. Publishing is tag-driven: push a `vX.Y.Z`
-# tag on main and this publishes that version to npm. Nothing publishes on a branch push — see
-# ci.yml for those checks. device-e2e.yml also runs on the tag (Q4).
+# Spec V2. Copied from edge_telemetry_react_native, plus: tag must be on main, the full CI
+# and the device e2e gate (Q4) re-run on the tag and must pass before publishing, and
+# prereleases (`-rc.N`) go to the `next` dist-tag. Nothing publishes on a branch push.
 on:
   push:
     tags:
@@ -17,7 +17,14 @@ permissions:
   id-token: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  device-e2e:
+    uses: ./.github/workflows/device-e2e.yml
+
   publish:
+    needs: [ci, device-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,16 +59,9 @@ jobs:
           fi
           echo "Publishing $PKG"
 
-      # Re-run the CI checks on the tagged commit (V2). `prepack` builds again on publish.
+      # `prepack` builds www/ and types/ during publish.
       - name: Install dependencies
         run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - run: npm run check:typings
-      - run: npm run check:terms
-      - run: npm run pack-audit
 
       # `-rc.N` and other prereleases go to `next`, so `npm install` never picks them up.
       - name: Publish to npm

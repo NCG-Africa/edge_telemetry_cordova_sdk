@@ -4,8 +4,8 @@ name: Device e2e
 on:
   schedule:
     - cron: '0 2 * * *'
-  push:
-    tags: ['v*']
+  # release.yml calls it on a release tag and won't publish unless it passes.
+  workflow_call:
   workflow_dispatch:
   # And on PRs that change what it drives.
   pull_request:
