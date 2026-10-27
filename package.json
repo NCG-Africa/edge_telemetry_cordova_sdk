@@ -1,6 +1,6 @@
 {
   "name": "@nathanclaire/rum-cordova",
-  "version": "1.0.0-dev",
+  "version": "1.0.0",
   "description": "Real User Monitoring for Cordova apps on Android and iOS",
   "license": "MIT",
   "repository": {
