@@ -1,5 +1,6 @@
 import { breadcrumb, call, DEFAULTS, discard, live, now, record, setEnabled, state, whenReady, type Attributes, type AttributeValue, type EdgeRumOptions } from './core';
 import { crash } from './errors';
+import './network';
 
 // Self-import: the global's type is this module's exports, so typings never drift from the bundle.
 import type * as EdgeRumModule from './index';
