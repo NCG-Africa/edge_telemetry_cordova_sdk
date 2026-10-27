@@ -58,7 +58,7 @@ Ticket links: [#5 SDK architecture](https://github.com/NCG-Africa/edge_telemetry
   |---|---|---|
   | `getState` | — | `{ enabled, sessionId, userId?, sampled, configured, sdkVersion, deviceStartedAt }` |
   | `subscribe` | — | keep-callback stream of `{ type: "session" \| "enabled", …state }` |
-  | `enqueue` | `{ events: Event[], breadcrumbs: Breadcrumb[] }` | ok / error |
+  | `enqueue` | `{ events: Event[], breadcrumbs: Breadcrumb[], drops?: { [reason]: n } }` (JS-side drops, T8; native counts them into `sdk.health` on a successful append) | ok / error |
   | `configure` | `{ apiKey?, endpoint? }` (from `init()`, not persisted) | ok |
   | `identify` / `clearUser` | `{ id?, name?, email?, phone? }` / — | ok |
   | `enable` / `disable` / `reset` | — | ok |

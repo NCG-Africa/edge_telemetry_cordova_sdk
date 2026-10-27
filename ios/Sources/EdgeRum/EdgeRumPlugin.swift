@@ -10,6 +10,7 @@ import WebKit
 @objc(EdgeRumPlugin)
 class EdgeRumPlugin: CDVPlugin {
     private var outbox: Outbox!
+    private var health: Health!
     private var sender: Sender!
     private var ticker: DispatchSourceTimer?
     /// Serial: every state-changing action, so a disable can't interleave an append.
@@ -40,7 +41,7 @@ class EdgeRumPlugin: CDVPlugin {
         launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = support.appendingPathComponent("edge_rum")
-        let health = Health(dir: dir)
+        health = Health(dir: dir)
         outbox = Outbox(dir: dir, health: health)
         if let v = setting("EdgeRumSdkVersion") {
             sdkVersion = v
@@ -425,6 +426,11 @@ class EdgeRumPlugin: CDVPlugin {
             if let payload { self.crash.mirror(payload) }
             let ok = self.admit(events.compactMap { $0 as? [String: Any] })
             self.saveCrashContext()
+            // T8: JS-side drops (pre-ready cap, failed exec, beforeSend), counted only once the append
+            // lands — on error JS keeps them and resends, so counting here too would double them.
+            if ok, let drops = payload?["drops"] as? [String: Any] {
+                for (reason, n) in drops { self.health.count(reason, (n as? NSNumber)?.intValue ?? 0) }
+            }
             if ok {
                 self.ok(command)
             } else {
