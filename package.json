@@ -41,7 +41,7 @@
     "plugin.xml"
   ],
   "scripts": {
-    "build": "node api.js && node scripts/build.mjs && tsc -p tsconfig.types.json",
+    "build": "node scripts/build.mjs && tsc -p tsconfig.types.json",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
