@@ -32,6 +32,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
       - run: scripts/example-build.sh android
+      # The AVD's userdata partition needs ~7.4 GB; the runner leaves ~6.5 GB free.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -42,8 +45,6 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
-          # The default userdata partition (~7.4 GB) doesn't fit on the runner's free disk.
-          disk-size: 3G
           script: node e2e/device/gate.mjs android
 
   ios:
