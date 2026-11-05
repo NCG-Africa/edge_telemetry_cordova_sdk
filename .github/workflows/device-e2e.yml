@@ -42,6 +42,8 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
+          # The default userdata partition (~7.4 GB) doesn't fit on the runner's free disk.
+          disk-size: 3G
           script: node e2e/device/gate.mjs android
 
   ios:
