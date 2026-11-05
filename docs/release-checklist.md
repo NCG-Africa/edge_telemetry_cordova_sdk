@@ -1,9 +1,10 @@
 # Release checklist
 
-Spec Q6. Run every `example/` scenario by hand on a **real** Android phone and a **real** iPhone, tick each box in the release PR, and don't tag `v1.0.0` (or any later release) until every box is ticked. The device e2e workflow (Q4) only automates the happy path on an emulator and a simulator; this list covers the rest.
+Spec Q6. Run every `example/` scenario by hand on a **real** Android phone and a **real** iPhone, tick each box in the release PR, and don't tag `v1.0.0` (or any later release) until every box is ticked. The device e2e gate (Q4) only automates the happy path on an emulator and a simulator; this list covers the rest.
 
 ## Setup
 
+0. With an Android emulator and an iOS simulator booted, run the device e2e gate on both: `npm run e2e:device -- android` and `npm run e2e:device -- ios`. Both must print `[gate] <platform> OK`.
 1. Start mock-ingest on a laptop on the same network as the phones: `node e2e/mock-ingest-server.mjs`.
 2. Build the example pointed at it, for each platform:
    ```sh
