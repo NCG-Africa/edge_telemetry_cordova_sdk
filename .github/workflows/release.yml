@@ -1,7 +1,7 @@
 name: Release
 
 # Spec V2. Copied from edge_telemetry_react_native, plus: tag must be on main, the full CI
-# and the device e2e gate (Q4) re-run on the tag and must pass before publishing, and
+# re-runs on the tag and must pass before publishing (the device e2e gate, Q4, runs locally), and
 # prereleases (`-rc.N`) go to the `next` dist-tag. Nothing publishes on a branch push.
 on:
   push:
@@ -20,11 +20,8 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  device-e2e:
-    uses: ./.github/workflows/device-e2e.yml
-
   publish:
-    needs: [ci, device-e2e]
+    needs: [ci]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

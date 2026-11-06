@@ -46,6 +46,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "node scripts/build.mjs && playwright test",
+    "e2e:device": "sh -c 'scripts/example-build.sh $0 && node e2e/device/gate.mjs $0'",
     "check:typings": "node scripts/check-typings.mjs",
     "check:terms": "node scripts/terminology-check.mjs",
     "pack-audit": "node scripts/pack-audit.mjs",
