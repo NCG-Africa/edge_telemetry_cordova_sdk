@@ -84,7 +84,7 @@ try {
     await sleep(2000);
     reqs = await requests();
   }
-  console.log(`[gate] ${reqs.length} batches, events: ${[...new Set(events(reqs).map((e) => e.eventName))].join(', ')}`);
+  console.log(`[gate] ${reqs.length} batches, events: ${[...new Set(events(reqs).map((e) => e.eventName ?? e.metricName))].join(', ')}`);
 
   for (const n of GATE) assert.ok(named(reqs, n).length > 0, `no ${n}`);
 
