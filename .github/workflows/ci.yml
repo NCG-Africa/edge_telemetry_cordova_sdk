@@ -45,10 +45,5 @@ jobs:
           gradle-version: '9.8.2'
       - run: gradle -p android test
 
-  ios-unit:
-    # Spec Q3: XCTest via Package.swift over the Foundation-only native core, on the macOS host.
-    # `swift test` can't load the bundle: the package name (= plugin id) contains a slash.
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: xcodebuild test -scheme @nathanclaire/rum-cordova -destination 'platform=macOS,arch=arm64'
+  # iOS unit tests run locally before tagging (no hosted macOS runners):
+  #   xcodebuild test -scheme @nathanclaire/rum-cordova -destination 'platform=macOS,arch=arm64'
