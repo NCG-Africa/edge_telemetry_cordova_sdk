@@ -1,31 +1,16 @@
 name: CI
-# ponytail: no push-to-main run, the PR run already covered the same commit.
-# Fixture builds and device e2e run locally (scripts/fixture-build.sh, npm run e2e:device).
+# Runs only from release.yml on a v* tag, before publishing. Run it locally on PRs
+# (npm test, npm run test:e2e, gradle -p android test, xcodebuild test); fixture builds and
+# device e2e are local only (scripts/fixture-build.sh, npm run e2e:device).
 on:
-  pull_request:
-    branches: [main]
-  # release.yml re-runs it on a tag before publishing (V2).
   workflow_call:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  changes:
-    # macOS minutes bill at 10x, so iOS unit tests only run on PRs that touch iOS code.
-    runs-on: ubuntu-latest
-    outputs:
-      ios: ${{ steps.diff.outputs.ios }}
-    steps:
-      - id: diff
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" != pull_request ]; then echo ios=true >> "$GITHUB_OUTPUT"; exit 0; fi
-          files=$(gh pr diff ${{ github.event.pull_request.number }} -R ${{ github.repository }} --name-only)
-          echo "ios=$(echo "$files" | grep -qE '^(ios/|Package\.swift|plugin\.xml|\.github/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
   js:
     runs-on: ubuntu-latest
     steps:
@@ -61,8 +46,6 @@ jobs:
       - run: gradle -p android test
 
   ios-unit:
-    needs: changes
-    if: needs.changes.outputs.ios == 'true'
     # Spec Q3: XCTest via Package.swift over the Foundation-only native core, on the macOS host.
     # `swift test` can't load the bundle: the package name (= plugin id) contains a slash.
     runs-on: macos-latest
