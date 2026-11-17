@@ -96,6 +96,18 @@ func json(_ text: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 }
 
+/// Re-record after a deliberate wire change: `TEST_RUNNER_UPDATE_GOLDEN=1 xcodebuild test …`, then
+/// review the diff. Keys sorted: event dictionaries have no order of their own.
+func recordGolden(_ name: String, _ body: String) {
+    guard ProcessInfo.processInfo.environment["UPDATE_GOLDEN"] == "1",
+          let object = try? JSONSerialization.jsonObject(with: Data(body.utf8)),
+          let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    else { return }
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../golden/\(name)").standardized
+    try? (data + Data("\n".utf8)).write(to: url)
+}
+
 /// Golden file with whitespace outside strings removed: the envelope is written compact and in a
 /// fixed key order, so the snapshot is compared byte for byte.
 func golden(_ name: String) -> String {

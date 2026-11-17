@@ -37,7 +37,7 @@ final class SessionTests: XCTestCase {
     }
 
     static func crash(_ type: String, _ stack: String) -> [String: Any] {
-        event("app.crash", ["is_fatal": false, "handled": true, "exception_type": type, "stacktrace": stack])
+        event("app.error", ["error.type": type, "error.stacktrace": stack])
     }
 
     static func bridge(_ service: String, _ action: String) -> [String: Any] {
@@ -79,15 +79,16 @@ final class SessionTests: XCTestCase {
     func testIdleTimeoutRotatesWithBackdatedFinalizeAndFreshCounters() {
         let s = session(1)
         _ = s.begin()
-        _ = s.admit([Self.event("navigation", ["navigation.to_screen": "/home"]), Self.metric("LCP")])
+        _ = s.admit([Self.event("navigation", ["navigation.to_screen": "/home"]), Self.metric("perf.lcp")])
         now += 60_000
         _ = s.admit([Self.event("navigation", ["navigation.to_screen": "/cart"])])
         now += Session.idleMs + 1
 
-        let out = s.admit([Self.event("custom_event")])
-        XCTAssertEqual(Self.names(out), ["session.finalized", "session.started", "custom_event"])
+        let out = s.admit([Self.event("custom.event")])
+        XCTAssertEqual(Self.names(out), ["session.finalized", "session.started", "custom.event"])
         let fin = Self.attrs(out[0])
         XCTAssertEqual(fin["session.id"] as? String, "session_1")
+        XCTAssertEqual(fin["session.reason"] as? String, "timeout")
         XCTAssertEqual(fin["session.duration_ms"] as? Int, 60_000)
         XCTAssertEqual(fin["session.event_count"] as? Int, 2)
         XCTAssertEqual(fin["session.metric_count"] as? Int, 1)
@@ -99,6 +100,22 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(started["session.total_sessions"] as? Int, 2)
         XCTAssertEqual(Self.attrs(out[2])["session.id"] as? String, "session_2")
         XCTAssertEqual(s.id, "session_2")
+    }
+
+    func testActiveSessionEndsAtTheFourHourCap() {
+        let s = session(1)
+        _ = s.begin()
+        let start = now
+        while now - start < Session.maxMs {
+            now += 10 * 60_000
+            XCTAssertEqual(s.admit([Self.event("custom.event")]).count, 1)
+        }
+        now += 1
+        let out = s.admit([Self.event("custom.event")])
+        XCTAssertEqual(Self.names(out), ["session.finalized", "session.started", "custom.event"])
+        XCTAssertEqual(Self.attrs(out[0])["session.reason"] as? String, "max_duration")
+        XCTAssertEqual(Self.attrs(out[0])["session.duration_ms"] as? Int64, Session.maxMs)
+        XCTAssertEqual(Session.maxMs, 4 * 60 * 60_000)
     }
 
     func testRotateIfIdleOnlyRotatesPastTheTimeout() {
@@ -142,9 +159,9 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(Self.attrs(s.begin()[0])["session.sampled"] as? Bool, false)
 
         let input = [
-            Self.event("navigation"), Self.metric("LCP"), Self.event("app.hang"),
-            Self.event("app.crash", ["is_fatal": false]),
-            Self.event("app.crash", ["is_fatal": true]), Self.event("app.anr"), Self.event("app.exit"),
+            Self.event("navigation"), Self.metric("perf.lcp"), Self.event("app.hang"),
+            Self.event("app.error"),
+            Self.event("app.crash"), Self.event("app.anr"), Self.event("app.exit"),
             Self.event("app.start"), Self.event("cordova.deviceready_timeout"), Self.event("sdk.health"),
         ]
         XCTAssertEqual(Self.names(s.admit(input)),
@@ -197,11 +214,11 @@ final class SessionTests: XCTestCase {
     func testCustomCapIsCombinedAcrossCustomHostMetricsAndTasks() {
         let s = session(1)
         _ = s.begin()
-        XCTAssertEqual(s.admit(Self.repeated(Self.event("custom_event"), 300)).count
-            + s.admit(Self.repeated(Self.metric("checkout_ms"), 150)).count
+        XCTAssertEqual(s.admit(Self.repeated(Self.event("custom.event"), 300)).count
+            + s.admit(Self.repeated(Self.metric("custom.metric"), 150)).count
             + s.admit(Self.repeated(Self.event("task.complete"), 50)).count, 500)
-        XCTAssertEqual(s.admit([Self.event("custom_event"), Self.metric("cart"), Self.event("task.complete")]).count, 0)
-        XCTAssertEqual(s.admit([Self.metric("LCP")]).count, 1)
+        XCTAssertEqual(s.admit([Self.event("custom.event"), Self.metric("custom.metric"), Self.event("task.complete")]).count, 0)
+        XCTAssertEqual(s.admit([Self.metric("perf.lcp")]).count, 1)
         XCTAssertEqual(health.snapshot(), ["events_dropped.cap.custom": 3])
     }
 
@@ -213,7 +230,7 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(s.admit(Self.repeated(Self.crash("TypeError", "TypeError: x\n    at g (app:///main.js:9:9)"), 5)).count, 5)
         for i in 0..<8 { _ = s.admit(Self.repeated(Self.crash("E\(i)", ""), 5)) }
         XCTAssertEqual(s.admit([Self.crash("New", "")]).count, 0, "50 total")
-        XCTAssertEqual(s.admit([Self.event("app.crash", ["is_fatal": true])]).count, 1, "fatal never capped")
+        XCTAssertEqual(s.admit([Self.event("app.crash")]).count, 1, "app.crash never capped")
         XCTAssertEqual(health.snapshot(), ["events_dropped.cap.error": 2])
     }
 
@@ -292,9 +309,13 @@ final class SessionTests: XCTestCase {
         userId = "u1"
         let s = session(rate)
         var lines = s.begin()
-        lines += s.admit([Self.event("navigation", ["navigation.to_screen": "/home"])])
+        var nav = Self.event("navigation", ["navigation.to_screen": "/home"])
+        nav["timestamp"] = Sender.rfc3339(now)
+        lines += s.admit([nav])
         now += 5_000
-        lines += s.admit([Self.metric("LCP")])
+        var lcp = Self.metric("perf.lcp")
+        lcp["timestamp"] = Sender.rfc3339(now)
+        lines += s.admit([lcp])
         now += Session.idleMs + 1
         lines += s.rotateIfIdle()
 
@@ -307,6 +328,7 @@ final class SessionTests: XCTestCase {
         sender.configure(apiKey: "k", url: SenderTests.endpoint)
         StubProtocol.replies = [.status(200)]
         sender.drain()
+        recordGolden(name, gunzip(StubProtocol.requests[0].body))
         // Event dictionaries are unordered: compare parsed, not byte for byte.
         XCTAssertEqual(json(gunzip(StubProtocol.requests[0].body)) as NSDictionary, json(golden(name)) as NSDictionary)
     }

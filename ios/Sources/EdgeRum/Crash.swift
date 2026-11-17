@@ -2,7 +2,7 @@ import EdgeRumCrash
 import Foundation
 
 /// Spec A3, E12, E13, E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.hang` records
-/// built from it. A crash can't run Swift: the C handlers (`edge_rum_crash.c`) leave a plain-text
+/// built from it, `error.*` keys (catalogue crash.yaml). A crash can't run Swift: the C handlers (`edge_rum_crash.c`) leave a plain-text
 /// report that `takeReport()` turns into an event next launch, under the identity, session and
 /// breadcrumbs `saveContext` saved before it died.
 final class Crash {
@@ -62,19 +62,19 @@ final class Crash {
         }
     }
 
-    /// E15: main-thread stall at or past the line. Not fatal, not handled; main stack only.
+    /// E15: main-thread stall at or past the line (the process lives on); main stack only.
     func hang(durationMs: Int64, frames: [Frame]) -> [String: Any] {
         var a: [String: Any] = [
-            "message": "Main thread blocked for \(durationMs) ms",
-            "crash_thread": "main",
-            "crash_is_main_thread": true,
-            "is_fatal": false,
-            "handled": false,
-            "hang_duration_ms": durationMs,
+            "error.message": "Main thread blocked for \(durationMs) ms",
+            "error.type": "Hang",
+            "error.cause": "hang",
+            "error.thread": "main",
+            "error.is_main_thread": true,
+            "hang.duration_ms": durationMs,
         ]
         Self.stack(frames, into: &a)
         lock.lock()
-        a["screen_name"] = screen
+        a["screen.name"] = screen
         lock.unlock()
         return Self.record("app.hang", clock(), a)
     }
@@ -83,17 +83,15 @@ final class Crash {
     /// (the hook saw it) or `inference` (a reload with no clean shutdown). Fatal, same path as E12.
     func webViewTerminated(detectedBy: String) -> [String: Any] {
         var a: [String: Any] = [
-            "message": "WebView content process terminated",
-            "exception_type": "WebViewTerminated",
-            "cause": "WebViewTerminated",
+            "error.message": "WebView content process terminated",
+            "error.type": "WebViewTerminated",
+            "error.cause": "webview_terminated",
             "webview.reason": "unknown",
             "webview.detected_by": detectedBy,
-            "is_fatal": true,
-            "handled": false,
         ]
         lock.lock()
-        a["crash.breadcrumbs"] = Self.json(crumbs)
-        a["screen_name"] = screen
+        a["error.breadcrumbs"] = Self.json(crumbs)
+        a["screen.name"] = screen
         lock.unlock()
         return Self.record("app.crash", clock(), a)
     }
@@ -105,8 +103,8 @@ final class Crash {
         a["session.id"] = sessionId
         a["user.id"] = userId
         lock.lock()
-        a["crash.breadcrumbs"] = Self.json(crumbs)
-        a["screen_name"] = screen
+        a["error.breadcrumbs"] = Self.json(crumbs)
+        a["screen.name"] = screen
         lock.unlock()
         guard let line = Session.line(["identity": identity, "attributes": a]) else { return }
         try? Data(line.utf8).write(to: context, options: .atomic)
@@ -152,23 +150,21 @@ final class Crash {
         var a: [String: Any]
         if let exc = fields["exception"].flatMap({ Int($0) }) {
             let name = exceptionNames[exc] ?? "EXC_\(exc)"
-            a = ["message": "\(name), code 0x\(fields["mach_code"] ?? "0"), subcode 0x\(fields["mach_subcode"] ?? "0")",
-                 "exception_type": name, "cause": "mach exception \(exc)"]
+            a = ["error.message": "\(name), code 0x\(fields["mach_code"] ?? "0"), subcode 0x\(fields["mach_subcode"] ?? "0")",
+                 "error.type": name]
         } else if let sig = fields["signal"].flatMap({ Int($0) }) {
             let name = signalNames[sig] ?? "SIG\(sig)"
-            a = ["message": "\(name), code \(fields["code"] ?? "0"), fault addr 0x\(fields["fault_addr"] ?? "0")",
-                 "exception_type": name, "cause": "signal \(sig)"]
+            a = ["error.message": "\(name), code \(fields["code"] ?? "0"), fault addr 0x\(fields["fault_addr"] ?? "0")",
+                 "error.type": name]
         } else {
             return nil
         }
         let main = fields["main"] == "1"
         let thread = fields["thread"] ?? ""
-        if !thread.isEmpty || main { a["crash_thread"] = thread.isEmpty ? "main" : thread }
-        a["crash_is_main_thread"] = main
-        a["error_context"] = frames.first?.location ?? "unknown"
+        a["error.cause"] = "native_crash"
+        if !thread.isEmpty || main { a["error.thread"] = thread.isEmpty ? "main" : thread }
+        a["error.is_main_thread"] = main
         stack(frames, into: &a)
-        a["is_fatal"] = true
-        a["handled"] = false
         a.merge(context) { _, saved in saved }
         return record("app.crash", at, a)
     }
@@ -204,8 +200,8 @@ final class Crash {
         return frames(Array(pcs.prefix(n)))
     }
 
-    /// `stacktrace` (whole frames up to `maxStack` bytes, as the sibling's `StackFrames.capped`) and
-    /// `crash.binary_images`, the images those frames reference (Y3 symbolication keys).
+    /// `error.stacktrace` (whole frames up to `maxStack` bytes, as the sibling's `StackFrames.capped`) and
+    /// `error.binary_images`, the images those frames reference (Y3 symbolication keys).
     private static func stack(_ frames: [Frame], into a: inout [String: Any]) {
         var kept: [Frame] = []
         var size = -1 // no separator before the first frame
@@ -215,7 +211,7 @@ final class Crash {
             kept.append(f)
         }
         guard !kept.isEmpty else { return }
-        a["stacktrace"] = kept.map(\.text).joined(separator: "\n")
+        a["error.stacktrace"] = kept.map(\.text).joined(separator: "\n")
         var seen = Set<UInt>()
         var images: [[String: String]] = []
         for f in kept where f.base != 0 && seen.insert(f.base).inserted {
@@ -223,7 +219,7 @@ final class Crash {
             if !f.uuid.isEmpty { image["uuid"] = f.uuid }
             images.append(image)
         }
-        if !images.isEmpty { a["crash.binary_images"] = json(images) }
+        if !images.isEmpty { a["error.binary_images"] = json(images) }
     }
 
     static func record(_ name: String, _ at: Int64, _ attrs: [String: Any]) -> [String: Any] {

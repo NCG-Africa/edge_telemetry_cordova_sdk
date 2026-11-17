@@ -6,6 +6,8 @@ import Security
 /// inside the idle timeout resumes the same session.
 final class Session {
     static let idleMs: Int64 = 30 * 60_000
+    /// Catalogue session rule: a session ends after 4 h, however active (`session.reason: max_duration`).
+    static let maxMs: Int64 = 4 * 60 * 60_000
     static let recordKey = "edge_rum_cordova.session"
     static let totalKey = "edge_rum_cordova.total_sessions"
     /// `session.visited_screens` keeps the first 50; `session.screen_count` counts them all (S6).
@@ -20,11 +22,9 @@ final class Session {
     /// A JSC frame (`fn@url:line[:col]`); a V8 message line with an `@` in it doesn't match.
     private static let jscFrame = #"^[^\s@]*@\S+:\d+(:\d+)?$"#
 
-    /// S2: never sampled out, never capped (fatal `app.crash` checked separately).
-    private static let exempt: Set<String> = ["session.started", "session.finalized", "app.anr", "app.exit",
+    /// S2: never sampled out, never capped. `app.crash` is always fatal; handled errors are `app.error`.
+    private static let exempt: Set<String> = ["session.started", "session.finalized", "app.crash", "app.anr", "app.exit",
                                               "app.start", "cordova.deviceready_timeout", "sdk.health"]
-    /// E7, E21, E22: SDK metrics; any other metric name is the host's (`measure()` / `time()`).
-    private static let sdkMetrics: Set<String> = ["LCP", "INP", "CLS", "FCP", "TTFB", "resource_timing", "memory_usage"]
 
     private let defaults: UserDefaults
     private let health: Health
@@ -94,7 +94,7 @@ final class Session {
         return out
     }
 
-    /// Rotation check without activity (foreground). Bookends to append, or none.
+    /// Rotation check without activity (foreground): idle past the timeout, or past the 4 h cap.
     func rotateIfIdle() -> [String] {
         lock.lock(); defer { lock.unlock() }
         var out: [String] = []
@@ -142,8 +142,15 @@ final class Session {
     }
 
     private func rotate(_ out: inout [String]) {
-        guard current != nil, clock() - lastActivityAt > Self.idleMs else { return }
-        out.append(finalized())
+        guard current != nil else { return }
+        let now = clock()
+        if now - lastActivityAt > Self.idleMs {
+            out.append(finalized("timeout"))
+        } else if now - startedAt > Self.maxMs {
+            out.append(finalized("max_duration"))
+        } else {
+            return
+        }
         start(&out)
     }
 
@@ -153,7 +160,7 @@ final class Session {
             let metric = e["type"] as? String == "metric"
             let name = e[metric ? "metricName" : "eventName"] as? String ?? ""
             count(metric, name, attrs)
-            if !Self.isExempt(name, attrs) {
+            if !Self.exempt.contains(name) {
                 guard isSampled else { continue }
                 if let reason = capReason(metric, name, attrs) {
                     health.count(reason, 1)
@@ -172,24 +179,19 @@ final class Session {
         if screens.count < Self.maxScreens { screens.append(screen) }
     }
 
-    private static func isExempt(_ name: String, _ attrs: [String: Any]) -> Bool {
-        exempt.contains(name) || (name == "app.crash" && attrs["is_fatal"] as? Bool == true)
-    }
-
     /// S4 / S7: the `sdk.health` reason when a cap is hit, else nil (and the event is counted).
     private func capReason(_ metric: Bool, _ name: String, _ attrs: [String: Any]) -> String? {
-        if metric && Self.sdkMetrics.contains(name) { return nil }
         func str(_ k: String) -> String { attrs[k] as? String ?? "" }
-        switch metric ? "custom_event" : name {
-        case "app.crash":
-            let key = "error:" + str("exception_type") + "|" + Self.topFrame(str("stacktrace"))
+        switch name {
+        case "app.error":
+            let key = "error:" + str("error.type") + "|" + Self.topFrame(str("error.stacktrace"))
             return allow("error", Self.capErrors, key, Self.capErrorsPerKey) ? nil : "cap.error"
         case "ui.interaction":
             return allow("interaction", Self.capInteractions) ? nil : "cap.interaction"
         case "bridge.call":
             let call = "bridge:" + str("bridge.service") + "|" + str("bridge.action")
             return allow("bridge", Self.capBridge, call, Self.capBridgePerCall) ? nil : "cap.bridge"
-        case "custom_event", "task.complete": // custom_event includes host metrics
+        case "custom.event", "custom.metric", "task.complete": // custom.metric: `measure()` / `time()`
             return allow("custom", Self.capCustom) ? nil : "cap.custom"
         default:
             return nil
@@ -246,8 +248,9 @@ final class Session {
     }
 
     /// E1: backdated to the last activity, so idle time isn't session time.
-    private func finalized() -> String {
+    private func finalized(_ reason: String) -> String {
         bookend("session.finalized", lastActivityAt, [
+            "session.reason": reason,
             "session.start_time": Sender.rfc3339(startedAt),
             "session.duration_ms": max(0, lastActivityAt - startedAt),
             "session.event_count": eventCount,
