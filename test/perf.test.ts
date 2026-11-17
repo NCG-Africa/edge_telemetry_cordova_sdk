@@ -165,6 +165,18 @@ describe('frame.summary (E20)', () => {
     expect(t.attrs('frame.summary').at(-1)).toMatchObject({ 'frame.total_frames': 1, 'frame.frozen_frames': 0 });
   });
 
+  it('a long screen still sends a window every 10 s of frames, stamped at its start', async () => {
+    const t = await load();
+    const start = Date.now();
+    for (let at = 0; at <= 10_000; at += 500) frame(at); // 20 gaps of 500 ms
+    const [first] = t.named('frame.summary');
+    expect(first.attributes).toMatchObject({ 'frame.total_frames': 20, 'frame.window_duration_ms': 10_000, 'screen.name': '/' });
+    expect(Date.parse(first.timestamp)).toBeLessThanOrEqual(start);
+    frame(10_016);
+    leaveScreen();
+    expect(t.attrs('frame.summary').map((a) => a['frame.total_frames'])).toEqual([20, 1]);
+  });
+
   it('honours frameSlowThresholdMs and captureFrames: false', async () => {
     let t = await load({ opts: { frameSlowThresholdMs: 17 } });
     frame(0);
@@ -230,12 +242,12 @@ describe('bridge timing (E18, E19)', () => {
 });
 
 describe('Web Vitals (E21)', () => {
-  it('each supported vital → a metric named after it; captureVitals: false registers none', async () => {
+  it('each supported vital → a perf.* metric; captureVitals: false registers none', async () => {
     let t = await load();
     vitals.onLCP({ name: 'LCP', value: 1234.5, rating: 'good' });
     vitals.onCLS({ name: 'CLS', value: 0.12, rating: 'needs-improvement' });
-    expect(t.named('LCP')).toMatchObject([{ type: 'metric', value: 1234.5, attributes: { 'metric.unit': 'ms', 'metric.rating': 'good', 'screen.name': '/' } }]);
-    expect(t.named('CLS')[0].attributes['metric.unit']).toBe('score');
+    expect(t.named('perf.lcp')).toMatchObject([{ type: 'metric', value: 1234.5, attributes: { 'metric.unit': 'ms', 'metric.rating': 'good', 'screen.name': '/' } }]);
+    expect(t.named('perf.cls')[0].attributes['metric.unit']).toBe('score');
     t = await load({ opts: { captureVitals: false } });
     expect(Object.keys(vitals)).toEqual([]);
   });

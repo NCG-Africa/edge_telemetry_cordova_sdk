@@ -183,7 +183,7 @@ export function breadcrumb(category: string, message: string, data?: Attributes)
   schedule();
 }
 
-/** The ring as `crash.breadcrumbs` carries it: JSON, oldest first. */
+/** The ring as `error.breadcrumbs` carries it: JSON, oldest first. */
 export const breadcrumbsJson = () => JSON.stringify(crumbs);
 
 export const now = () => new Date().toISOString();

@@ -69,7 +69,7 @@ describe('pre-deviceready buffer (A4)', () => {
     t.ready();
     const events = t.events();
     expect(events[0].attributes['event.name']).toBe('e5');
-    expect(events.filter((e) => e.eventName === 'custom_event')).toHaveLength(500);
+    expect(events.filter((e) => e.eventName === 'custom.event')).toHaveLength(500);
     expect(events).toHaveLength(500);
     expect(t.drops()).toEqual({ js_buffer_full: 5 });
   });
@@ -121,12 +121,14 @@ describe('hand-off triggers (T1)', () => {
     expect(t.enqueues()[0]).toHaveLength(20);
   });
 
-  it('flushes immediately on a captured app.crash', async () => {
+  it('flushes immediately on an uncaught app.crash, not on a handled app.error', async () => {
     const t = await load();
     t.ready();
     t.api.track('a');
-    t.api.captureError(new TypeError('boom'));
-    expect(t.events().map((e) => e.eventName)).toEqual(['custom_event', 'app.crash']);
+    t.api.captureError(new TypeError('handled'));
+    expect(t.events()).toEqual([]);
+    window.dispatchEvent(new ErrorEvent('error', { error: new TypeError('boom') }));
+    expect(t.events().map((e) => e.eventName)).toEqual(['custom.event', 'app.error', 'app.crash']);
   });
 
   it('flushes immediately on visibilitychange→hidden and on pause', async () => {
@@ -221,7 +223,7 @@ describe('beforeSend (P5)', () => {
     t.api.track('a', { email: 'a@b.c' });
     vi.advanceTimersByTime(2000);
     const [e] = t.events();
-    expect(e.eventName).toBe('custom_event');
+    expect(e.eventName).toBe('custom.event');
     expect(e.attributes).toEqual({ 'event.name': 'a', email: 'redacted', 'session.id': 's1' });
   });
 
@@ -310,25 +312,25 @@ describe('API methods (C4)', () => {
     return { ...t, flushed };
   }
 
-  it('track → custom_event with event.name', async () => {
+  it('track → custom.event with event.name', async () => {
     const t = await started();
     t.api.track('checkout', { plan: 'pro' });
     t.api.track('');
     expect(t.flushed()).toEqual([
-      { type: 'event', eventName: 'custom_event', timestamp: expect.stringMatching(/Z$/), attributes: { plan: 'pro', 'event.name': 'checkout', 'session.id': 's1' } },
+      { type: 'event', eventName: 'custom.event', timestamp: expect.stringMatching(/Z$/), attributes: { plan: 'pro', 'event.name': 'checkout', 'session.id': 's1' } },
     ]);
   });
 
-  it('measure → host-named numeric row; non-finite values ignored', async () => {
+  it('measure → custom.metric with the host name in metric.name; non-finite values ignored', async () => {
     const t = await started();
     t.api.measure('cart.items', 3, { tier: 'gold' });
     t.api.measure('bad', NaN);
     expect(t.flushed()).toEqual([
-      { type: 'metric', metricName: 'cart.items', value: 3, timestamp: expect.any(String), attributes: { tier: 'gold', 'session.id': 's1' } },
+      { type: 'metric', metricName: 'custom.metric', value: 3, timestamp: expect.any(String), attributes: { tier: 'gold', 'metric.name': 'cart.items', 'session.id': 's1' } },
     ]);
   });
 
-  it('time().end() → measure of the elapsed ms, once', async () => {
+  it('time().end() → custom.metric of the elapsed ms, once', async () => {
     const t = await started();
     const timer = t.api.time('load');
     vi.advanceTimersByTime(250);
@@ -336,7 +338,7 @@ describe('API methods (C4)', () => {
     timer.end();
     const rows = t.flushed();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ metricName: 'load', attributes: { cached: true } });
+    expect(rows[0]).toMatchObject({ metricName: 'custom.metric', attributes: { cached: true, 'metric.name': 'load', 'metric.unit': 'ms' } });
     expect(rows[0].value).toBeGreaterThanOrEqual(250);
   });
 
@@ -345,20 +347,20 @@ describe('API methods (C4)', () => {
     t.api.trackScreen('home');
     t.api.trackScreen('cart', { tab: 2 });
     const [a, b] = t.flushed().filter((e) => e.eventName === 'navigation');
-    expect(a.attributes).toMatchObject({ 'navigation.to_screen': 'home', 'navigation.method': 'manual' });
+    expect(a.attributes).toMatchObject({ 'navigation.to_screen': 'home', 'navigation.method': 'initial' });
     expect(a.attributes['navigation.from_screen']).toBeUndefined();
-    expect(b.attributes).toMatchObject({ 'navigation.from_screen': 'home', 'navigation.to_screen': 'cart', tab: 2 });
+    expect(b.attributes).toMatchObject({ 'navigation.from_screen': 'home', 'navigation.to_screen': 'cart', 'navigation.method': 'unknown', tab: 2 });
   });
 
-  it('captureError → handled, non-fatal app.crash with release', async () => {
+  it('captureError → app.error with release', async () => {
     const t = await started();
     t.api.init({ release: 'web@1' });
     t.api.captureError(new RangeError('nope'), { step: 'pay' });
     t.api.captureError('plain string');
-    const [a, b] = t.events();
-    expect(a.attributes).toMatchObject({ message: 'nope', exception_type: 'RangeError', handled: true, is_fatal: false, runtime: 'webview', release: 'web@1', step: 'pay' });
-    expect(a.attributes.stacktrace).toContain('RangeError');
-    expect(b.attributes).toMatchObject({ message: 'plain string', exception_type: 'Error' });
+    const [a, b] = t.flushed();
+    expect(a).toMatchObject({ eventName: 'app.error', attributes: { 'error.message': 'nope', 'error.type': 'RangeError', 'error.cause': 'handled', 'error.runtime': 'webview', 'error.release': 'web@1', step: 'pay' } });
+    expect(a.attributes['error.stacktrace']).toContain('RangeError');
+    expect(b.attributes).toMatchObject({ 'error.message': 'plain string', 'error.type': 'Error' });
   });
 
   it('tasks → one task.complete per terminal; unknown names ignored', async () => {

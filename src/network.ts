@@ -38,12 +38,23 @@ const ignored = (url: string) => {
 
 const hex = (bytes: number) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 
-/** E8: a W3C `traceparent` for hosts in `correlateRequestsTo` only. */
-function trace(url: string) {
+/** E8: hosts in `correlateRequestsTo` are traced; others carry no `traceparent.outcome` (#42). */
+const traced = (url: string) => {
   const host = absolute(url)?.hostname;
-  if (!host || !matches(state.options.correlateRequestsTo, host, true)) return undefined;
-  const ids = { 'trace.id': hex(16), 'span.id': hex(8) };
+  return !!host && matches(state.options.correlateRequestsTo, host, true);
+};
+
+/** E8: a fresh W3C `traceparent`; no action roots here, so the outcome is `injected_unattributed`. */
+function inject() {
+  const ids: Attributes = { 'trace.id': hex(16), 'span.id': hex(8), 'traceparent.outcome': 'injected_unattributed' };
   return { ids, header: `00-${ids['trace.id']}-${ids['span.id']}-01` };
+}
+
+const TRACEPARENT = /^[0-9a-f]{2}-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/;
+/** The host set its own `traceparent`: it wins; a well-formed one is `adopted` with its ids. */
+function consumer(header: string): Attributes {
+  const m = TRACEPARENT.exec(header.trim().toLowerCase());
+  return m ? { 'trace.id': m[1], 'span.id': m[2], 'traceparent.outcome': 'adopted' } : { 'traceparent.outcome': 'skipped_consumer_set' };
 }
 
 /** E6: one `http.request` (N1 keys). Status 0 = no response. P3: no headers, no bodies. */
@@ -78,12 +89,17 @@ function patchFetch() {
     const url = req ? req.url : absolute(String(input))?.href ?? String(input);
     if (!capturing(url)) return original.call(this, input, init);
     const method = init?.method ?? req?.method ?? 'GET';
-    // no-cors forbids non-safelisted headers: adding one would make fetch throw.
-    const t = (init?.mode ?? req?.mode) === 'no-cors' ? undefined : trace(url);
-    if (t) {
+    let ids: Attributes | undefined;
+    if (traced(url)) {
       // A copy: the host's Headers / Request are never mutated. Their own traceparent wins.
       const headers = new Headers(init?.headers ?? req?.headers);
-      if (!headers.has('traceparent')) {
+      const theirs = headers.get('traceparent');
+      // no-cors forbids non-safelisted headers: adding one would make fetch throw.
+      if (theirs !== null) ids = consumer(theirs);
+      else if ((init?.mode ?? req?.mode) === 'no-cors') ids = { 'traceparent.outcome': 'skipped_no_cors' };
+      else {
+        const t = inject();
+        ids = t.ids;
         headers.set('traceparent', t.header);
         init = { ...init, headers };
       }
@@ -91,18 +107,18 @@ function patchFetch() {
     const start = performance.now();
     return original.call(this, input, init).then(
       (res) => {
-        report(url, method, res.status, start, t?.ids);
+        report(url, method, res.status, start, ids);
         return res;
       },
       (err: unknown) => {
-        report(url, method, 0, start, t?.ids);
+        report(url, method, 0, start, ids);
         throw err;
       },
     );
   };
 }
 
-interface Pending { method: string; url: string; start: number; hasTrace?: boolean; ids?: Attributes }
+interface Pending { method: string; url: string; start: number; theirs?: string; ids?: Attributes }
 type Xhr = XMLHttpRequest & { __edgeRum?: Pending; __edgeRumListening?: boolean };
 
 function patchXhr() {
@@ -115,16 +131,20 @@ function patchXhr() {
     return open.apply(this, arguments as unknown as Parameters<typeof open>);
   } as typeof open;
   proto.setRequestHeader = function (this: Xhr, name: string, value: string) {
-    if (this.__edgeRum && name.toLowerCase() === 'traceparent') this.__edgeRum.hasTrace = true;
+    if (this.__edgeRum && name.toLowerCase() === 'traceparent') this.__edgeRum.theirs = String(value);
     return setRequestHeader.call(this, name, value);
   };
   proto.send = function (this: Xhr, body?: Document | XMLHttpRequestBodyInit | null) {
     state.activity++;
     const p = this.__edgeRum;
     if (p && capturing(p.url)) {
-      const t = p.hasTrace ? undefined : trace(p.url);
-      if (t) setRequestHeader.call(this, 'traceparent', t.header);
-      p.ids = t?.ids;
+      if (!traced(p.url)) p.ids = undefined;
+      else if (p.theirs !== undefined) p.ids = consumer(p.theirs);
+      else {
+        const t = inject();
+        setRequestHeader.call(this, 'traceparent', t.header);
+        p.ids = t.ids;
+      }
       p.start = performance.now();
       // One listener per instance: a reused XHR would otherwise report N times.
       if (!this.__edgeRumListening) {
@@ -140,7 +160,7 @@ function patchXhr() {
   };
 }
 
-/** E7: one `resource_timing` metric per finished resource, when opted in. */
+/** E7: one `perf.resource_timing` metric per finished resource, when opted in. */
 function observeResources() {
   if (typeof PerformanceObserver === 'undefined' || !PerformanceObserver.supportedEntryTypes?.includes('resource')) return;
   new PerformanceObserver((list) => {
@@ -149,10 +169,10 @@ function observeResources() {
       if (ignored(r.name)) continue;
       record({
         type: 'metric',
-        metricName: 'resource_timing',
+        metricName: 'perf.resource_timing',
         value: Math.round(r.duration),
         timestamp: now(),
-        attributes: { 'resource.url': scrubUrl(r.name), 'resource.initiator_type': r.initiatorType },
+        attributes: { 'metric.unit': 'ms', 'resource.url': scrubUrl(r.name), 'resource.initiator_type': r.initiatorType },
       });
     }
   }).observe({ type: 'resource', buffered: true });

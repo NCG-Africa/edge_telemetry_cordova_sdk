@@ -96,7 +96,21 @@ describe('navigation + screen.duration (E4, E5)', () => {
     location.hash = '#/cart';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     settle();
-    expect(t.named('navigation').at(-1)).toMatchObject({ 'navigation.from_screen': '/home', 'navigation.to_screen': '/cart', 'navigation.route_type': 'hash' });
+    expect(t.named('navigation').at(-1)).toMatchObject({ 'navigation.from_screen': '/home', 'navigation.to_screen': '/cart', 'navigation.route_type': 'hash', 'navigation.method': 'push' });
+  });
+
+  it('navigation methods are the catalogue enum; the event timestamp is the time', async () => {
+    const t = await load('/home');
+    t.api.trackScreen('Cart');
+    const all = t.named('navigation');
+    expect(all.map((a) => a['navigation.method'])).toEqual(['initial', 'unknown']);
+    for (const a of all) expect(a).not.toHaveProperty('navigation.timestamp');
+  });
+
+  it('path-shaped names from trackScreen and screenName are templated', async () => {
+    const t = await load('/a', { screenName: (p) => `/x${p}/123` });
+    t.api.trackScreen('/orders/42');
+    expect(t.named('navigation').map((a) => a['navigation.to_screen'])).toEqual(['/x/a/{id}', '/orders/{id}']);
   });
 
   it('trackScreen overrides the URL name; the same URL is not reported again', async () => {
@@ -108,7 +122,7 @@ describe('navigation + screen.duration (E4, E5)', () => {
     settle();
     expect(t.named('navigation').map((a) => [a['navigation.from_screen'], a['navigation.to_screen'], a['navigation.method']])).toEqual([
       [undefined, '/orders/{id}', 'initial'],
-      ['/orders/{id}', 'Order', 'manual'],
+      ['/orders/{id}', 'Order', 'unknown'],
       ['Order', '/home', 'push'],
     ]);
     expect(t.named('screen.duration').map((a) => a['screen.name'])).toEqual(['/orders/{id}', 'Order']);
@@ -143,7 +157,7 @@ describe('navigation + screen.duration (E4, E5)', () => {
     settle();
     expect(t.named('navigation').map((a) => [a['navigation.to_screen'], a['navigation.method']])).toEqual([
       ['/home', 'initial'],
-      ['Cart', 'manual'],
+      ['Cart', 'unknown'],
       ['/done', 'push'],
     ]);
     expect(t.named('screen.duration').map((a) => [a['screen.name'], a['screen.duration_ms']])).toEqual([['/home', 500], ['Cart', 100]]); // 500: timed from deviceready, before load()'s settle

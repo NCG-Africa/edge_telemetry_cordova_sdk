@@ -18,7 +18,13 @@ let claimedUntil = -Infinity;
 /** The screen the user is on (P2 name), for `ui.screen`. */
 export const currentScreen = () => current?.name;
 
-/** E4 / E5: leave the current screen (one `screen.duration`) and enter `name` (one `navigation`). */
+/** Catalogue `navigation.method` enum. A hash link is a forward step; `trackScreen()` can't say. */
+const METHODS: Record<string, string> = { push: 'push', replace: 'replace', pop: 'pop', hash: 'push', initial: 'initial' };
+
+/**
+ * E4 / E5: leave the current screen (one `screen.duration`) and enter `name` (one `navigation`).
+ * `method` is how we saw it; `screen.exit_method` keeps it as is.
+ */
 export function enter(name: string, method: string, attrs: Attributes = {}, at = performance.now(), timestamp = now()) {
   const from = current;
   close(method, at);
@@ -28,8 +34,7 @@ export function enter(name: string, method: string, attrs: Attributes = {}, at =
     ...attrs,
     ...(from && { 'navigation.from_screen': from.name }),
     'navigation.to_screen': name,
-    'navigation.method': method,
-    'navigation.timestamp': Date.parse(timestamp),
+    'navigation.method': from ? METHODS[method] ?? 'unknown' : 'initial',
   }, timestamp);
 }
 
@@ -42,14 +47,14 @@ function close(method: string, at = performance.now()) {
   current.start = undefined;
 }
 
-/** P2: hash route if present (`#/…`, `#!/…`), else path; query dropped; ids → `{id}`; host `screenName` overrides. */
+/** P2: hash route if present (`#/…`, `#!/…`), else path; query dropped; ids → `{id}`; host `screenName` overrides (templated too). */
 function routeName() {
   const hash = /^#!?(\/[^?]*)/.exec(location.hash)?.[1];
   const path = hash ?? location.pathname;
   let name = template(path);
   try {
     const custom = state.options.screenName?.(path);
-    if (typeof custom === 'string' && custom) name = custom;
+    if (typeof custom === 'string' && custom) name = template(custom);
   } catch {
     // A throwing host override keeps the built-in name.
   }
@@ -81,7 +86,7 @@ export function manual(name: string, attrs?: Attributes) {
   route = routeName().name;
   claimedUntil = performance.now() + SETTLE_MS;
   state.activity++;
-  enter(name, 'manual', attrs);
+  enter(template(name), 'manual', attrs);
 }
 
 if (live) {
