@@ -30,7 +30,7 @@ public class SenderTest {
             + "\"platform\":\"android\",\"version\":\"1.4.2\",\"build_number\":\"142\"},\"device_id\":\"device_1700000000000_0123456789abcdef_android\"}";
     static final List<String> EVENTS = Arrays.asList(
             "{\"type\":\"event\",\"eventName\":\"navigation\",\"timestamp\":\"2026-10-26T10:00:00.000Z\",\"attributes\":{\"navigation.to_screen\":\"/home\"}}",
-            "{\"type\":\"metric\",\"metricName\":\"LCP\",\"value\":812.5,\"timestamp\":\"2026-10-26T10:00:01.000Z\",\"attributes\":{}}");
+            "{\"type\":\"metric\",\"metricName\":\"perf.lcp\",\"value\":812.5,\"timestamp\":\"2026-10-26T10:00:01.000Z\",\"attributes\":{}}");
 
     @Rule public TemporaryFolder tmp = new TemporaryFolder();
     MockWebServer server = new MockWebServer();
@@ -91,7 +91,55 @@ public class SenderTest {
         }
     }
 
+    /** The wire body indented two spaces, key order and escapes as sent. */
+    static String pretty(String body) {
+        StringBuilder out = new StringBuilder();
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (inString) {
+                out.append(c);
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            switch (c) {
+                case '"': inString = true; out.append(c); break;
+                case '{': case '[':
+                    char close = c == '{' ? '}' : ']';
+                    if (i + 1 < body.length() && body.charAt(i + 1) == close) {
+                        out.append(c).append(close);
+                        i++;
+                    } else {
+                        out.append(c).append('\n');
+                        indent(out, ++depth);
+                    }
+                    break;
+                case '}': case ']': out.append('\n'); indent(out, --depth); out.append(c); break;
+                case ',': out.append(",\n"); indent(out, depth); break;
+                case ':': out.append(": "); break;
+                default: if (!Character.isWhitespace(c)) out.append(c);
+            }
+        }
+        return out.append('\n').toString();
+    }
+
+    private static void indent(StringBuilder out, int depth) {
+        for (int i = 0; i < depth; i++) out.append("  ");
+    }
+
     static void assertGolden(String name, String body) throws Exception {
+        // Re-record after a deliberate wire change: `UPDATE_GOLDEN=1 gradle -p android test`, then review the diff.
+        if ("1".equals(System.getenv("UPDATE_GOLDEN"))) {
+            try (java.io.Writer w = new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream("src/test/resources/golden/" + name), "UTF-8")) {
+                w.write(pretty(body));
+            }
+            return;
+        }
         // Key order is part of the snapshot: the envelope is written in a fixed order.
         assertEquals(name + " drifted", golden(name).toString(2), new JSONObject(body).toString(2));
     }

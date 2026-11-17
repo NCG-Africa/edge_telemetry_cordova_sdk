@@ -79,7 +79,7 @@ final class Exits {
     private static JSONObject attributes(Record r) throws JSONException {
         JSONObject a = new JSONObject()
                 .put("exit.reason", r.reason >= 0 && r.reason < REASONS.length ? REASONS[r.reason] : "unknown_" + r.reason)
-                .put("exit.importance", importance(r.importance))
+                .put("exit.importance", r.importance)
                 .put("exit.description", r.description)
                 .put("exit.status", r.status)
                 .put("exit.pss_kb", r.pssKb)
@@ -89,19 +89,5 @@ final class Exits {
             a.put("exit.trace", r.trace.length() <= MAX_TRACE ? r.trace : r.trace.substring(0, MAX_TRACE) + "\n…[trace truncated]");
         }
         return a;
-    }
-
-    /** `RunningAppProcessInfo.IMPORTANCE_*`, by value. */
-    private static String importance(int code) {
-        switch (code) {
-            case 100: return "foreground";
-            case 125: return "foreground_service";
-            case 200: return "visible";
-            case 230: return "perceptible";
-            case 300: return "service";
-            case 400: return "cached";
-            case 1000: return "gone";
-            default: return "unknown_" + code;
-        }
     }
 }

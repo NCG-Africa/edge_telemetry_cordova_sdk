@@ -1,6 +1,6 @@
 {
   "type": "telemetry_batch",
-  "contract_version": "4.0.0",
+  "contract_version": "4.3.0",
   "timestamp": "2026-10-26T10:00:03.000Z",
   "batch_size": 1,
   "device_id": "device_1700000000000_0123456789abcdef_android",
@@ -11,30 +11,27 @@
   "app": {
     "name": "Fixture",
     "package_name": "com.nathanclaire.rum.fixture",
-    "platform": "android",
+    "build_number": "142",
     "version": "1.4.2",
-    "build_number": "142"
+    "platform": "android"
   },
   "events": [
     {
-      "type": "event",
       "eventName": "app.crash",
-      "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
-        "message": "java.lang.IllegalStateException: cart is null",
-        "stacktrace": "java.lang.IllegalStateException: cart is null\n\tat com.fixture.Cart.total(Cart.java:42)\n\tat android.os.Handler.dispatchMessage(Handler.java:102)\nCaused by: java.lang.NullPointerException: item\n",
-        "exception_type": "IllegalStateException",
-        "cause": "item",
-        "error_context": "Cart.total",
-        "crash_thread": "main",
-        "crash_is_main_thread": true,
-        "is_fatal": true,
-        "handled": false,
-        "screen_name": "/cart",
-        "crash.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"},{\"category\":\"navigation\",\"message\":\"crumb 1\"}]",
-        "session.id": "session_1",
-        "user.id": "u1"
-      }
+        "error.stacktrace": "java.lang.IllegalStateException: cart is null\n\tat com.fixture.Cart.total(Cart.java:42)\n\tat android.os.Handler.dispatchMessage(Handler.java:102)\nCaused by: java.lang.NullPointerException: item\n",
+        "error.is_main_thread": true,
+        "error.cause": "unhandled_exception",
+        "error.type": "IllegalStateException",
+        "error.thread": "main",
+        "screen.name": "\/cart",
+        "user.id": "u1",
+        "error.message": "java.lang.IllegalStateException: cart is null",
+        "error.breadcrumbs": "[{\"category\":\"navigation\",\"message\":\"crumb 0\"},{\"category\":\"navigation\",\"message\":\"crumb 1\"}]",
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
     }
   ]
 }

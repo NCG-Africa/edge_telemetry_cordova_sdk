@@ -38,12 +38,16 @@ public class LaunchTest {
         assertNull("once per launch", launch.finish());
     }
 
-    @Test public void markReadyInsideWindowCompletesIt() throws Exception {
+    @Test public void markReadyInsideWindowCompletesItButDoesNotExtendIt() throws Exception {
         pagePhases();
         launch.mark("deviceready", T0 + 700);
         JSONObject e = launch.mark("markReady", T0 + 2000);
-        assertEquals(2000, e.getJSONObject("attributes").getLong("app.start.duration_ms"));
-        assertEquals(Sender.rfc3339(T0 + 2000), e.getString("timestamp"));
+        JSONObject a = e.getJSONObject("attributes");
+        assertEquals("ends at bridge ready (deviceready)", 700, a.getLong("app.start.duration_ms"));
+        assertEquals(700, a.getLong("app.start.bridge_ready_ms"));
+        assertEquals(2000, a.getLong("app.start.mark_ready_ms"));
+        assertFalse(a.has("app.start.deviceready_ms"));
+        assertEquals(Sender.rfc3339(T0 + 700), e.getString("timestamp"));
         assertNull(launch.finish());
     }
 

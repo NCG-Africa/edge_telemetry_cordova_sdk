@@ -18,7 +18,7 @@ import org.json.JSONObject;
 
 /**
  * Spec A3, E12–E15, Y3: the native breadcrumb mirror and the `app.crash` / `app.anr` /
- * `app.hang` records built from it. JVM crashes are written in-process; an NDK crash leaves a
+ * `app.hang` records built from it, `error.*` keys (catalogue crash.yaml). JVM crashes are written in-process; an NDK crash leaves a
  * plain-text report (`edge_rum_ndk.c`) that {@link #takeNdk} turns into an event next launch,
  * under the identity, session and breadcrumbs saved by {@link #saveContext} before it died.
  */
@@ -27,8 +27,7 @@ final class Crash {
     /** Sibling `CrashReportingService` caps. */
     private static final int MAX_MESSAGE = 1000;
     private static final int MAX_STACK = 2000;
-    private static final int MAX_CAUSE = 255;
-    private static final int MAX_CONTEXT = 500;
+    private static final int MAX_TYPE = 255;
     private static final String[] SIGNAL_NAMES = new String[32];
 
     static {
@@ -102,21 +101,18 @@ final class Crash {
         });
     }
 
-    /** Y3: raw Throwable stack, N1 keys, sibling caps. */
+    /** Y3: raw Throwable stack (its `Caused by:` chain included), sibling caps. */
     JSONObject jvm(Thread thread, Throwable e) throws JSONException {
         StringWriter sw = new StringWriter();
         e.printStackTrace(new PrintWriter(sw));
-        String stack = sw.toString();
-        Throwable cause = e.getCause();
         JSONObject a = new JSONObject()
-                .put("message", cap(e.getClass().getName() + ": " + (e.getMessage() == null ? "" : e.getMessage()), MAX_MESSAGE))
-                .put("stacktrace", cap(stack, MAX_STACK))
-                .put("exception_type", cap(e.getClass().getSimpleName(), MAX_CAUSE))
-                .put("cause", cap(cause == null || cause.getMessage() == null ? "unknown" : cause.getMessage(), MAX_CAUSE))
-                .put("error_context", cap(jvmContext(stack), MAX_CONTEXT))
-                .put("crash_thread", thread.getName())
-                .put("crash_is_main_thread", thread == main);
-        return event("app.crash", clock.getAsLong(), fatal(a));
+                .put("error.message", cap(e.getClass().getName() + ": " + (e.getMessage() == null ? "" : e.getMessage()), MAX_MESSAGE))
+                .put("error.stacktrace", cap(sw.toString(), MAX_STACK))
+                .put("error.type", cap(e.getClass().getSimpleName(), MAX_TYPE))
+                .put("error.cause", "unhandled_exception")
+                .put("error.thread", thread.getName())
+                .put("error.is_main_thread", thread == main);
+        return event("app.crash", clock.getAsLong(), withContext(a));
     }
 
     /**
@@ -125,26 +121,27 @@ final class Crash {
      */
     JSONObject webViewTerminated(String reason) throws JSONException {
         JSONObject a = new JSONObject()
-                .put("message", "WebView renderer process gone (" + reason + ")")
-                .put("exception_type", "WebViewTerminated")
-                .put("cause", "WebViewTerminated")
+                .put("error.message", "WebView renderer process gone (" + reason + ")")
+                .put("error.type", "WebViewTerminated")
+                .put("error.cause", "webview_terminated")
                 .put("webview.reason", reason)
                 .put("webview.detected_by", "callback");
-        return event("app.crash", clock.getAsLong(), fatal(a));
+        return event("app.crash", clock.getAsLong(), withContext(a));
     }
 
-    /** E14 / E15: main-thread stall at or past its threshold. Not fatal, not handled; main stack only. */
+    /** E14 / E15: main-thread stall at or past its threshold (the process lives on); main stack only. */
     JSONObject stall(String name, long durationMs, String stack) throws JSONException {
+        boolean anr = "app.anr".equals(name);
         JSONObject a = new JSONObject()
-                .put("message", "Main thread blocked for " + durationMs + " ms")
-                .put("stacktrace", cap(stack, MAX_STACK))
-                .put("crash_thread", main.getName())
-                .put("crash_is_main_thread", true)
-                .put("is_fatal", false)
-                .put("handled", false)
-                .put("app.anr".equals(name) ? "anr_duration_ms" : "hang_duration_ms", durationMs);
+                .put("error.message", "Main thread blocked for " + durationMs + " ms")
+                .put("error.type", anr ? "ANR" : "Hang")
+                .put("error.cause", anr ? "anr" : "hang")
+                .put("error.stacktrace", cap(stack, MAX_STACK))
+                .put("error.thread", main.getName())
+                .put("error.is_main_thread", true)
+                .put(anr ? "anr.duration_ms" : "hang.duration_ms", durationMs);
         String s = screen();
-        if (s != null) a.put("screen_name", s);
+        if (s != null) a.put("screen.name", s);
         return event(name, clock.getAsLong(), a);
     }
 
@@ -157,8 +154,8 @@ final class Crash {
         try (FileOutputStream out = new FileOutputStream(tmp)) {
             JSONObject a = new JSONObject().put("session.id", sessionId).put("user.id", userId);
             synchronized (this) {
-                a.put("crash.breadcrumbs", new JSONArray(breadcrumbs).toString());
-                if (screen != null) a.put("screen_name", screen);
+                a.put("error.breadcrumbs", new JSONArray(breadcrumbs).toString());
+                if (screen != null) a.put("screen.name", screen);
             }
             out.write(new JSONObject().put("identity", identity).put("attributes", a).toString()
                     .getBytes(StandardCharsets.UTF_8));
@@ -204,7 +201,6 @@ final class Crash {
         long tid = -2;
         String thread = "";
         StringBuilder stack = new StringBuilder();
-        String top = null;
         int n = 0;
         for (String line : report.split("\n")) {
             int sp = line.indexOf(' ');
@@ -227,7 +223,6 @@ final class Crash {
                     stack.append(String.format(Locale.US, "#%02d pc %016x  %s", n++, new BigInteger(f[0], 16).longValue(), image));
                     if (!"-".equals(f[1])) stack.append(" (BuildId: ").append(f[1]).append(')');
                     stack.append('\n');
-                    if (top == null) top = image.substring(image.lastIndexOf('/') + 1) + "+0x" + f[0];
                     break;
                 default:
                     break;
@@ -236,32 +231,28 @@ final class Crash {
         if (signal < 0) throw new JSONException("no signal in NDK report");
         String name = signal < SIGNAL_NAMES.length && SIGNAL_NAMES[signal] != null ? SIGNAL_NAMES[signal] : "SIG" + signal;
         JSONObject a = new JSONObject()
-                .put("message", String.format(Locale.US, "%s, code %d, fault addr 0x%x", name, code, faultAddr))
-                .put("stacktrace", cap(stack.toString(), MAX_STACK))
-                .put("exception_type", name)
-                .put("cause", "signal " + signal)
-                .put("error_context", top == null ? "unknown" : top)
-                .put("crash_thread", thread)
-                .put("crash_is_main_thread", pid == tid);
+                .put("error.message", String.format(Locale.US, "%s, code %d, fault addr 0x%x", name, code, faultAddr))
+                .put("error.stacktrace", cap(stack.toString(), MAX_STACK))
+                .put("error.type", name)
+                .put("error.cause", "native_crash")
+                .put("error.thread", thread)
+                .put("error.is_main_thread", pid == tid);
         JSONArray keys = context.names();
         for (int i = 0; keys != null && i < keys.length(); i++) a.put(keys.getString(i), context.get(keys.getString(i)));
-        return event("app.crash", at, fatalFlags(a));
+        return event("app.crash", at, a);
     }
 
-    private JSONObject fatal(JSONObject a) throws JSONException {
+    /** The breadcrumbs and screen of the moment. */
+    private JSONObject withContext(JSONObject a) throws JSONException {
         String crumbs;
         String s;
         synchronized (this) {
             crumbs = new JSONArray(breadcrumbs).toString();
             s = screen;
         }
-        a.put("crash.breadcrumbs", crumbs);
-        if (s != null) a.put("screen_name", s);
-        return fatalFlags(a);
-    }
-
-    private static JSONObject fatalFlags(JSONObject a) throws JSONException {
-        return a.put("is_fatal", true).put("handled", false);
+        a.put("error.breadcrumbs", crumbs);
+        if (s != null) a.put("screen.name", s);
+        return a;
     }
 
     private synchronized String screen() {
@@ -274,20 +265,6 @@ final class Crash {
                 .put("eventName", name)
                 .put("timestamp", Sender.rfc3339(at))
                 .put("attributes", attrs);
-    }
-
-    /** Sibling `extractErrorContext`: `Class.method` of the first `at` frame. */
-    private static String jvmContext(String stack) {
-        for (String line : stack.split("\n")) {
-            String l = line.trim();
-            if (!l.startsWith("at ")) continue;
-            String method = l.substring(3);
-            int paren = method.indexOf('(');
-            if (paren > 0) method = method.substring(0, paren);
-            String[] parts = method.split("\\.");
-            return parts.length >= 2 ? parts[parts.length - 2] + "." + parts[parts.length - 1] : method;
-        }
-        return "unknown";
     }
 
     private static String cap(String s, int max) {

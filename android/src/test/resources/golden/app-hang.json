@@ -1,6 +1,6 @@
 {
   "type": "telemetry_batch",
-  "contract_version": "4.0.0",
+  "contract_version": "4.3.0",
   "timestamp": "2026-10-26T10:00:03.001Z",
   "batch_size": 1,
   "device_id": "device_1700000000000_0123456789abcdef_android",
@@ -11,27 +11,27 @@
   "app": {
     "name": "Fixture",
     "package_name": "com.nathanclaire.rum.fixture",
-    "platform": "android",
+    "build_number": "142",
     "version": "1.4.2",
-    "build_number": "142"
+    "platform": "android"
   },
   "events": [
     {
-      "type": "event",
       "eventName": "app.hang",
-      "timestamp": "2026-10-26T10:00:02.000Z",
       "attributes": {
-        "message": "Main thread blocked for 2100 ms",
-        "stacktrace": "at android.os.MessageQueue.nativePollOnce(Native Method)\nat com.fixture.Cart.total(Cart.java:42)\n",
-        "crash_thread": "main",
-        "crash_is_main_thread": true,
-        "is_fatal": false,
-        "handled": false,
-        "hang_duration_ms": 2100,
-        "screen_name": "/cart",
-        "session.id": "session_1",
-        "user.id": "u1"
-      }
+        "error.stacktrace": "at android.os.MessageQueue.nativePollOnce(Native Method)\nat com.fixture.Cart.total(Cart.java:42)\n",
+        "error.is_main_thread": true,
+        "error.cause": "hang",
+        "error.type": "Hang",
+        "hang.duration_ms": 2100,
+        "error.thread": "main",
+        "screen.name": "\/cart",
+        "user.id": "u1",
+        "error.message": "Main thread blocked for 2100 ms",
+        "session.id": "session_1"
+      },
+      "type": "event",
+      "timestamp": "2026-10-26T10:00:02.000Z"
     }
   ]
 }
