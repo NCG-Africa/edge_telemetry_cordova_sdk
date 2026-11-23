@@ -96,25 +96,12 @@ func json(_ text: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 }
 
-/// Golden file with whitespace outside strings removed: the envelope is written compact and in a
-/// fixed key order, so the snapshot is compared byte for byte.
-func golden(_ name: String) -> String {
-    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("../golden/\(name)").standardized
-    let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-    var out = ""
-    var inString = false
-    var escaped = false
-    for c in text {
-        if inString {
-            out.append(c)
-            if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
-        } else if c == "\"" {
-            inString = true
-            out.append(c)
-        } else if !c.isWhitespace {
-            out.append(c)
-        }
-    }
-    return out
+/// Spec 2026-11-23 stable goldens: dumps `body` to the gitignored `test/golden-raw/ios` at the repo
+/// root; `scripts/conform.sh` checks it against the catalogue and its shape file.
+func dumpGolden(_ name: String, _ body: String) {
+    let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../../test/golden-raw/ios").standardized
+    // A failed dump must fail the run, not show up later as a missing event in the shape.
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try! Data(body.utf8).write(to: dir.appendingPathComponent(name))
 }

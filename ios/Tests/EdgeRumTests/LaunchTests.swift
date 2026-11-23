@@ -36,12 +36,15 @@ final class LaunchTests: XCTestCase {
         XCTAssertNil(launch.finish(), "once per launch")
     }
 
-    func testMarkReadyInsideWindowCompletesIt() {
+    func testMarkReadyInsideWindowCompletesItButDoesNotExtendIt() {
         pagePhases()
         _ = launch.mark("deviceready", Self.t0 + 700)
         let e = launch.mark("markReady", Self.t0 + 2000)
-        XCTAssertEqual(attrs(e)["app.start.duration_ms"] as? Int64, 2000)
-        XCTAssertEqual(e?["timestamp"] as? String, Sender.rfc3339(Self.t0 + 2000))
+        XCTAssertEqual(attrs(e)["app.start.duration_ms"] as? Int64, 700, "ends at bridge ready (deviceready)")
+        XCTAssertEqual(attrs(e)["app.start.bridge_ready_ms"] as? Int64, 700)
+        XCTAssertEqual(attrs(e)["app.start.mark_ready_ms"] as? Int64, 2000)
+        XCTAssertNil(attrs(e)["app.start.deviceready_ms"])
+        XCTAssertEqual(e?["timestamp"] as? String, Sender.rfc3339(Self.t0 + 700))
         XCTAssertNil(launch.finish())
     }
 
@@ -94,8 +97,8 @@ final class LaunchTests: XCTestCase {
         _ = launch.mark("deviceready", Self.t0 + 700)
         Launch.timedOut(defaults, timeoutMs: 10_000, now: Self.t0 - 50_000)
         let start = try XCTUnwrap(launch.mark("markReady", Self.t0 + 1500))
-        try SignalsTests.assertGolden("app-start.json", dir, health, session.admit([start]))
+        try SignalsTests.dumpGoldenBatch("app-start.json", dir, health, session.admit([start]))
         let timeout = try XCTUnwrap(Launch.takeTimeout(defaults))
-        try SignalsTests.assertGolden("cordova-deviceready-timeout.json", dir, health, session.admit([timeout]))
+        try SignalsTests.dumpGoldenBatch("cordova-deviceready-timeout.json", dir, health, session.admit([timeout]))
     }
 }

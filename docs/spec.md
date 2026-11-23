@@ -93,7 +93,7 @@ Ticket links: [#5 SDK architecture](https://github.com/NCG-Africa/edge_telemetry
 | E4 | `navigation` | JS | on | Patch `pushState`/`replaceState`/`popstate`/`hashchange`; name per P2; `trackScreen()` overrides. |
 | E5 | `screen.duration` | JS | on | On leaving a screen. |
 | E6 | `http.request` | JS | on | `fetch` + XHR; URL per P1; own endpoint and `ignoreUrls` skipped. No native HTTP stacks. |
-| E7 | M:`resource_timing` | JS | opt-in | `PerformanceObserver('resource')`, `captureResourceTiming`. |
+| E7 | M:`perf.resource_timing` | JS | opt-in | `PerformanceObserver('resource')`, `captureResourceTiming`: `resource.host`, `resource.initiator_type`. |
 | E8 | `traceparent` injection | JS | opt-in | Only to hosts in `correlateRequestsTo`. |
 | E9 | `app.crash` JS unhandled | JS | on | `error` + `unhandledrejection`; `handled=false`, `is_fatal=true`, `runtime=webview`, frames per Y2, `crash.breadcrumbs`, optional `release` (Y1). |
 | E10 | `app.crash` handled | JS | on (API) | `captureError()` → `handled=true`, `is_fatal=false`. |

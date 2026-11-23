@@ -2,6 +2,14 @@
 
 Spec Q6. Run every `example/` scenario by hand on a **real** Android phone and a **real** iPhone, tick each box in the release PR, and don't tag `v1.0.0` (or any later release) until every box is ticked. The device e2e gate (Q4) only automates the happy path on an emulator and a simulator; this list covers the rest.
 
+## Catalogue conformance gate
+
+Spec 2026-11-23 stable goldens (AC-7). The pin moves only here, never in a feature PR.
+
+- [ ] Every catalogue change this release needs is tagged `catalogue-v4.N` in the processor repo. If not, cut the tag there first.
+- [ ] `catalogue.version` names that `catalogue-v4.N` tag, not `main` or a branch.
+- [ ] `scripts/conform.sh` on this commit prints `conforms to catalogue 4.N` and `shape matches` for all three sets (needs node, gradle with JDK 17+, xcodebuild, `go` and read access to the processor repo; `PROCESSOR_DIR=<checkout>` reuses a local one). An intended wire change: `scripts/conform.sh -update`, and commit the shape diff with the change.
+
 ## Setup
 
 0. With an Android emulator and an iOS simulator booted, run the device e2e gate on both: `npm run e2e:device -- android` and `npm run e2e:device -- ios`. Both must print `[gate] <platform> OK`.

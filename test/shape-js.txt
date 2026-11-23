@@ -1,0 +1,108 @@
+app.crash event error.breadcrumbs string
+app.crash event error.cause string
+app.crash event error.message string
+app.crash event error.stacktrace string
+app.crash event error.type string
+app.crash event release string
+app.crash event runtime string
+app.error event error.breadcrumbs string
+app.error event error.cause string
+app.error event error.message string
+app.error event error.stacktrace string
+app.error event error.type string
+app.error event release string
+app.error event runtime string
+bridge.call event bridge.action string
+bridge.call event bridge.duration_ms number
+bridge.call event bridge.outcome string
+bridge.call event bridge.service string
+bridge.summary event bridge.action string
+bridge.summary event bridge.count number
+bridge.summary event bridge.error_count number
+bridge.summary event bridge.max_ms number
+bridge.summary event bridge.p50_ms number
+bridge.summary event bridge.p95_ms number
+bridge.summary event bridge.service string
+bridge.summary event screen.name string
+common device.android_release string
+common device.android_sdk number
+common device.brand string
+common device.cpu_abi string
+common device.cpu_cores number
+common device.hardware string
+common device.locale string
+common device.low_ram bool
+common device.manufacturer string
+common device.model string
+common device.platform string
+common device.platform_version string
+common device.product string
+common device.screen_density number
+common device.screen_height_px number
+common device.screen_width_px number
+common device.timezone string
+common network.type string
+common session.id string
+common user.id string
+custom.event event event.name string
+custom.metric metric metric.name string
+envelope app.build_number string
+envelope app.name string
+envelope app.package_name string
+envelope app.platform string
+envelope app.version string
+envelope batch_size number
+envelope contract_version string
+envelope device_id string
+envelope sdk.name string
+envelope sdk.version string
+envelope timestamp string
+envelope type string
+frame.summary event frame.frozen_frames number
+frame.summary event frame.long_task_count number
+frame.summary event frame.max_total_duration_ms number
+frame.summary event frame.slow_frame_rate number
+frame.summary event frame.slow_frames number
+frame.summary event frame.source string
+frame.summary event frame.total_frames number
+frame.summary event frame.window_duration_ms number
+frame.summary event screen.name string
+http.request event http.duration_ms number
+http.request event http.method string
+http.request event http.status_code number
+http.request event http.success bool
+http.request event http.url string
+navigation event navigation.from_screen string
+navigation event navigation.method string
+navigation event navigation.to_screen string
+perf.cls metric metric.rating string
+perf.cls metric metric.unit string
+perf.cls metric screen.name string
+perf.fcp metric metric.rating string
+perf.fcp metric metric.unit string
+perf.fcp metric screen.name string
+perf.inp metric metric.rating string
+perf.inp metric metric.unit string
+perf.inp metric screen.name string
+perf.lcp metric metric.rating string
+perf.lcp metric metric.unit string
+perf.lcp metric screen.name string
+perf.resource_timing metric metric.unit string
+perf.resource_timing metric resource.host string
+perf.resource_timing metric resource.initiator_type string
+perf.ttfb metric metric.rating string
+perf.ttfb metric metric.unit string
+perf.ttfb metric screen.name string
+screen.duration event screen.duration_ms number
+screen.duration event screen.exit_method string
+screen.duration event screen.name string
+task.complete event span.duration_ms number
+task.complete event task.name string
+task.complete event task.outcome string
+ui.interaction event ui.dead bool
+ui.interaction event ui.name_source string
+ui.interaction event ui.screen string
+ui.interaction event ui.target string
+ui.interaction event ui.type string
+ui.interaction event ui.x number
+ui.interaction event ui.y number

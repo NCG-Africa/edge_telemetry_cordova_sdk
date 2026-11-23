@@ -3,11 +3,29 @@ package com.nathanclaire.rum.cordova;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
+import java.io.File;
+import java.util.Collections;
 import org.json.JSONObject;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class UserTest {
+    @Rule public TemporaryFolder tmp = new TemporaryFolder();
     final IdGeneratorTest.FakeStore store = new IdGeneratorTest.FakeStore();
+
+    @Test public void goldenBatch() throws Exception {
+        long now = 1793008802000L; // 2026-10-26T10:00:02.000Z
+        File dir = new File(tmp.getRoot(), "edge_rum");
+        Health health = new Health(dir);
+        User user = new User(store);
+        Session session = new Session(store, health, () -> now, 1.0, () -> 0.0, () -> "session_1", user::id);
+        session.begin();
+        JSONObject update = user.identify(new JSONObject().put("id", "u1").put("name", "Ann").put("email", "ann@example.com")
+                .put("phone", "+254700000000"));
+        update.put("timestamp", Sender.rfc3339(now));
+        SenderTest.dumpGoldenBatch("user-profile-update.json", dir, health, now, session.admit(Collections.singletonList(update)));
+    }
 
     @Test public void identifyPersistsAndEmitsProfileUpdateOnlyWhenTraitsChange() throws Exception {
         User user = new User(store);

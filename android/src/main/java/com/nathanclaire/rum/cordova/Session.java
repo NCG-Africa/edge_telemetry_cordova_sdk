@@ -23,6 +23,8 @@ import org.json.JSONObject;
  */
 final class Session {
     static final long IDLE_MS = 30 * 60_000;
+    /** Catalogue session rule: a session ends after 4 h, however active (`session.reason: max_duration`). */
+    static final long MAX_MS = 4 * 60 * 60_000L;
     static final String KEY_RECORD = "session";
     static final String KEY_TOTAL = "total_sessions";
     /** `session.visited_screens` keeps the first 50; `session.screen_count` counts them all (S6). */
@@ -37,12 +39,9 @@ final class Session {
     /** A JSC frame (`fn@url:line[:col]`); a V8 message line with an `@` in it doesn't match. */
     private static final Pattern JSC_FRAME = Pattern.compile("^[^\\s@]*@\\S+:\\d+(:\\d+)?$");
 
-    /** S2: never sampled out, never capped (fatal `app.crash` checked separately). */
+    /** S2: never sampled out, never capped. `app.crash` is always fatal; handled errors are `app.error`. */
     private static final Set<String> EXEMPT = new HashSet<>(Arrays.asList("session.started", "session.finalized",
-            "app.anr", "app.exit", "app.start", "cordova.deviceready_timeout", "sdk.health"));
-    /** E7, E21, E22: SDK metrics; any other metric name is the host's (`measure()` / `time()`). */
-    private static final Set<String> SDK_METRICS = new HashSet<>(Arrays.asList(
-            "LCP", "INP", "CLS", "FCP", "TTFB", "resource_timing", "memory_usage"));
+            "app.crash", "app.anr", "app.exit", "app.start", "cordova.deviceready_timeout", "sdk.health"));
 
     private final IdGenerator.Store store;
     private final Health health;
@@ -98,13 +97,15 @@ final class Session {
         return out;
     }
 
-    /** Rotation check without activity (foreground). Bookends to append, or none. */
+    /** Rotation check without activity (foreground): idle past the timeout, or past the 4 h cap. */
     synchronized List<String> rotateIfIdle() {
         List<String> out = new ArrayList<>();
-        if (id != null && clock.getAsLong() - lastActivityAt > IDLE_MS) {
-            out.add(finalized());
-            start(out);
-        }
+        long now = clock.getAsLong();
+        if (id == null) return out;
+        if (now - lastActivityAt > IDLE_MS) out.add(finalized("timeout"));
+        else if (now - startedAt > MAX_MS) out.add(finalized("max_duration"));
+        else return out;
+        start(out);
         return out;
     }
 
@@ -153,7 +154,7 @@ final class Session {
             boolean metric = "metric".equals(e.optString("type"));
             String name = e.optString(metric ? "metricName" : "eventName");
             count(metric, name, attrs);
-            if (!exempt(name, attrs)) {
+            if (!exempt(name)) {
                 if (!sampled) continue;
                 String reason = capReason(metric, name, attrs);
                 if (reason != null) {
@@ -179,23 +180,23 @@ final class Session {
         if (screens.size() < MAX_SCREENS) screens.add(screen);
     }
 
-    private static boolean exempt(String name, JSONObject attrs) {
-        return EXEMPT.contains(name) || ("app.crash".equals(name) && attrs.optBoolean("is_fatal"));
+    private static boolean exempt(String name) {
+        return EXEMPT.contains(name);
     }
 
     /** S4 / S7: the `sdk.health` reason when a cap is hit, else null (and the event is counted). */
     private String capReason(boolean metric, String name, JSONObject attrs) {
-        if (metric && SDK_METRICS.contains(name)) return null;
-        switch (metric ? "custom_event" : name) {
-            case "app.crash":
-                String key = "error:" + attrs.optString("exception_type") + "|" + topFrame(attrs.optString("stacktrace"));
+        switch (name) {
+            case "app.error":
+                String key = "error:" + attrs.optString("error.type") + "|" + topFrame(attrs.optString("error.stacktrace"));
                 return allow("error", CAP_ERRORS, key, CAP_ERRORS_PER_KEY) ? null : "cap.error";
             case "ui.interaction":
                 return allow("interaction", CAP_INTERACTIONS, null, 0) ? null : "cap.interaction";
             case "bridge.call":
                 String call = "bridge:" + attrs.optString("bridge.service") + "|" + attrs.optString("bridge.action");
                 return allow("bridge", CAP_BRIDGE, call, CAP_BRIDGE_PER_CALL) ? null : "cap.bridge";
-            case "custom_event": // and host metrics
+            case "custom.event":
+            case "custom.metric": // `measure()` / `time()`
             case "task.complete":
                 return allow("custom", CAP_CUSTOM, null, 0) ? null : "cap.custom";
             default:
@@ -267,9 +268,10 @@ final class Session {
     }
 
     /** E1: backdated to the last activity, so idle time isn't session time. */
-    private String finalized() {
+    private String finalized(String reason) {
         try {
             JSONObject a = sampledAttr(new JSONObject()
+                    .put("session.reason", reason)
                     .put("session.start_time", Sender.rfc3339(startedAt))
                     .put("session.duration_ms", Math.max(0, lastActivityAt - startedAt))
                     .put("session.event_count", eventCount)

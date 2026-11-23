@@ -38,12 +38,16 @@ public class LaunchTest {
         assertNull("once per launch", launch.finish());
     }
 
-    @Test public void markReadyInsideWindowCompletesIt() throws Exception {
+    @Test public void markReadyInsideWindowCompletesItButDoesNotExtendIt() throws Exception {
         pagePhases();
         launch.mark("deviceready", T0 + 700);
         JSONObject e = launch.mark("markReady", T0 + 2000);
-        assertEquals(2000, e.getJSONObject("attributes").getLong("app.start.duration_ms"));
-        assertEquals(Sender.rfc3339(T0 + 2000), e.getString("timestamp"));
+        JSONObject a = e.getJSONObject("attributes");
+        assertEquals("ends at bridge ready (deviceready)", 700, a.getLong("app.start.duration_ms"));
+        assertEquals(700, a.getLong("app.start.bridge_ready_ms"));
+        assertEquals(2000, a.getLong("app.start.mark_ready_ms"));
+        assertFalse(a.has("app.start.deviceready_ms"));
+        assertEquals(Sender.rfc3339(T0 + 700), e.getString("timestamp"));
         assertNull(launch.finish());
     }
 
@@ -96,8 +100,8 @@ public class LaunchTest {
         Launch.timedOut(store, 10_000, T0 - 50_000);
         // S2: both exempt, so they survive a sampled-out session.
         List<String> lines = new ArrayList<>(session.admit(Arrays.asList(launch.mark("markReady", T0 + 1500))));
-        SenderTest.assertGoldenBatch("app-start.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("app-start.json", dir, health, now, lines);
         lines = session.admit(Arrays.asList(Launch.takeTimeout(store)));
-        SenderTest.assertGoldenBatch("cordova-deviceready-timeout.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("cordova-deviceready-timeout.json", dir, health, now, lines);
     }
 }

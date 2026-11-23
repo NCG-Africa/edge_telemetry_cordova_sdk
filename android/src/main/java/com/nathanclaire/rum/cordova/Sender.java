@@ -29,7 +29,7 @@ import org.json.JSONObject;
  * request in flight, each as a gzipped contract-4 envelope.
  */
 final class Sender {
-    static final String CONTRACT_VERSION = "4.0.0";
+    static final String CONTRACT_VERSION = "4.3.0";
     /** T6: delays before the 3 retries that follow a failed first send. */
     static final long[] RETRY_MS = {1_000, 4_000, 16_000};
     /** Backoff of a parked segment; matches the 30 s tick that retries it (T6). */

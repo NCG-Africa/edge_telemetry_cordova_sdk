@@ -21,7 +21,7 @@ final class Launch {
             {"responseEnd", "app.start.response_end_ms"},
             {"DOMContentLoaded", "app.start.dom_content_loaded_ms"},
             {"load", "app.start.load_ms"},
-            {DEVICEREADY, "app.start.deviceready_ms"},
+            {DEVICEREADY, "app.start.bridge_ready_ms"},
             {READY, "app.start.mark_ready_ms"}};
 
     private final long processStart;
@@ -55,9 +55,10 @@ final class Launch {
         return emitted || !marks.containsKey(DEVICEREADY) ? null : emit();
     }
 
+    /** Catalogue app start: process start → bridge ready (`deviceready`); `markReady()` is a phase, not the end. */
     private JSONObject emit() throws JSONException {
         emitted = true;
-        long end = marks.containsKey(READY) ? Math.max(marks.get(READY), marks.get(DEVICEREADY)) : marks.get(DEVICEREADY);
+        long end = marks.get(DEVICEREADY);
         JSONObject a = new JSONObject()
                 .put("app.start.type", "cold")
                 .put("app.start.duration_ms", Math.max(0, end - processStart))

@@ -102,7 +102,7 @@ public class CrashTest {
         List<String> bodies = relaunchAndSend();
 
         assertEquals("crash batch + the open segment sealed at relaunch", 2, bodies.size());
-        SenderTest.assertGolden("app-crash-jvm.json", bodies.get(0));
+        SenderTest.dumpGolden("app-crash-jvm.json", bodies.get(0));
         JSONObject normal = new JSONObject(bodies.get(1));
         JSONArray events = normal.getJSONArray("events");
         assertEquals("sdk.health rides the normal batch", "sdk.health", events.getJSONObject(events.length() - 1).getString("eventName"));
@@ -121,8 +121,8 @@ public class CrashTest {
 
         assertEquals(java.util.Arrays.asList("sink", "previous"), order);
         JSONObject a = sunk.get(0).getJSONObject("attributes");
-        assertEquals("worker", a.getString("crash_thread"));
-        assertFalse(a.getBoolean("crash_is_main_thread"));
+        assertEquals("worker", a.getString("error.thread"));
+        assertFalse(a.getBoolean("error.is_main_thread"));
     }
 
     @Test public void failingSinkStillChains() {
@@ -138,7 +138,7 @@ public class CrashTest {
     @Test public void breadcrumbRingKeepsLastFifty() throws Exception {
         crash.mirror(payload(40, "/a"));
         crash.mirror(payload(30, null));
-        JSONArray crumbs = new JSONArray(crash.jvm(main, fixedException()).getJSONObject("attributes").getString("crash.breadcrumbs"));
+        JSONArray crumbs = new JSONArray(crash.jvm(main, fixedException()).getJSONObject("attributes").getString("error.breadcrumbs"));
         assertEquals(Crash.BREADCRUMBS, crumbs.length());
         assertEquals("crumb 20", crumbs.getJSONObject(0).getString("message"));
         assertEquals("crumb 29", crumbs.getJSONObject(49).getString("message"));
@@ -154,7 +154,7 @@ public class CrashTest {
         assertEquals(CRASHED_IDENTITY, p.identity);
         assertNull("report consumed", next.takeNdk());
         outbox.writeSolo(p.identity, p.event);
-        SenderTest.assertGolden("app-crash-ndk.json", relaunchAndSend().get(0));
+        SenderTest.dumpGolden("app-crash-ndk.json", relaunchAndSend().get(0));
     }
 
     @Test public void tornNdkReportIsDropped() throws Exception {
@@ -166,9 +166,10 @@ public class CrashTest {
 
     @Test public void ndkFrameNamesAndMainThread() throws Exception {
         JSONObject a = Crash.ndk(NDK_REPORT.replace("tid 4242", "tid 4300"), new JSONObject()).getJSONObject("attributes");
-        assertEquals("libgame.so+0x1a2c", a.getString("error_context"));
-        assertFalse(a.getBoolean("crash_is_main_thread"));
-        assertTrue(a.getString("stacktrace").startsWith("#00 pc 0000000000001a2c  /data/app/"));
+        assertFalse("top frame is in the stack, not its own key", a.has("error_context"));
+        assertEquals("native_crash", a.getString("error.cause"));
+        assertFalse(a.getBoolean("error.is_main_thread"));
+        assertTrue(a.getString("error.stacktrace").startsWith("#00 pc 0000000000001a2c  /data/app/"));
     }
 
     @Test public void clearForgetsEverything() throws Exception {
@@ -178,8 +179,8 @@ public class CrashTest {
         crash.clear();
         assertNull(crash.takeNdk());
         JSONObject a = crash.jvm(main, fixedException()).getJSONObject("attributes");
-        assertEquals("[]", a.getString("crash.breadcrumbs"));
-        assertFalse(a.has("screen_name"));
+        assertEquals("[]", a.getString("error.breadcrumbs"));
+        assertFalse(a.has("screen.name"));
     }
 
     @Test public void anrAndHangGoldenBatches() throws Exception {
@@ -189,8 +190,8 @@ public class CrashTest {
         now += 1;
         solo(crash.stall("app.anr", 5_000, stack), SenderTest.IDENTITY);
         List<String> bodies = relaunchAndSend();
-        SenderTest.assertGolden("app-hang.json", bodies.get(0));
-        SenderTest.assertGolden("app-anr.json", bodies.get(1));
+        SenderTest.dumpGolden("app-hang.json", bodies.get(0));
+        SenderTest.dumpGolden("app-anr.json", bodies.get(1));
     }
 
     @Test public void sampledOutSessionKeepsAnrDropsHang() throws Exception {
@@ -213,17 +214,45 @@ public class CrashTest {
     @Test public void webViewTerminatedIsFatalWithCrumbsAndScreen() throws Exception {
         crash.mirror(payload(3, "/checkout"));
         JSONObject a = crash.webViewTerminated("oom_killed").getJSONObject("attributes");
-        assertEquals("WebViewTerminated", a.getString("cause"));
+        assertEquals("webview_terminated", a.getString("error.cause"));
+        assertEquals("WebViewTerminated", a.getString("error.type"));
         assertEquals("oom_killed", a.getString("webview.reason"));
         assertEquals("callback", a.getString("webview.detected_by"));
-        assertEquals("/checkout", a.getString("screen_name"));
-        assertEquals(3, new JSONArray(a.getString("crash.breadcrumbs")).length());
-        assertTrue(a.getBoolean("is_fatal"));
+        assertEquals("/checkout", a.getString("screen.name"));
+        assertEquals(3, new JSONArray(a.getString("error.breadcrumbs")).length());
+        assertFalse("the event name says fatal", a.has("is_fatal"));
+        assertFalse(a.has("handled"));
+    }
+
+    @Test public void stallsUseCatalogueKeys() throws Exception {
+        crash.mirror(payload(0, "/cart"));
+        JSONObject anr = crash.stall("app.anr", 5_000, "at x").getJSONObject("attributes");
+        assertEquals(5_000, anr.getLong("anr.duration_ms"));
+        assertEquals("ANR", anr.getString("error.type"));
+        assertEquals("anr", anr.getString("error.cause"));
+        assertEquals("Main thread blocked for 5000 ms", anr.getString("error.message"));
+        assertEquals("at x", anr.getString("error.stacktrace"));
+        assertEquals("/cart", anr.getString("screen.name"));
+        JSONObject hang = crash.stall("app.hang", 2_100, "").getJSONObject("attributes");
+        assertEquals(2_100, hang.getLong("hang.duration_ms"));
+        assertEquals("Hang", hang.getString("error.type"));
+        assertEquals("hang", hang.getString("error.cause"));
+        for (String old : new String[] {"anr_duration_ms", "hang_duration_ms", "message", "stacktrace", "screen_name",
+                "crash_thread", "crash_is_main_thread", "is_fatal", "handled"}) {
+            assertFalse(old, anr.has(old) || hang.has(old));
+        }
+    }
+
+    @Test public void jvmCrashIsUnhandledException() throws Exception {
+        JSONObject a = crash.jvm(main, fixedException()).getJSONObject("attributes");
+        assertEquals("unhandled_exception", a.getString("error.cause"));
+        assertTrue(a.has("error.type") && a.has("error.message") && a.has("error.stacktrace"));
+        assertFalse(a.has("error_context"));
     }
 
     @Test public void webViewTerminatedGoldenBatch() throws Exception {
         crash.mirror(payload(1, "/checkout"));
         solo(crash.webViewTerminated("crash"), SenderTest.IDENTITY);
-        SenderTest.assertGolden("app-crash-webview.json", relaunchAndSend().get(0));
+        SenderTest.dumpGolden("app-crash-webview.json", relaunchAndSend().get(0));
     }
 }

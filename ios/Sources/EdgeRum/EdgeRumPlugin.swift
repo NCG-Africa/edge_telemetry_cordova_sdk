@@ -26,6 +26,10 @@ class EdgeRumPlugin: CDVPlugin {
     private var identity = ""
     private var sdkVersion = "unknown"
     private let processStartedAt = EdgeRumPlugin.processStartMs()
+    /// A5 / catalogue: one `app.start` per process, so a second plugin instance (another WebView, or a
+    /// view controller recreated in a live process) never starts a second cold launch.
+    private static let launchLock = NSLock()
+    private static var processLaunch: Launch?
     private var launch: Launch!
     /// A6 fallback, when the hook is off. Worker queue only.
     private var pageWatch = PageWatch()
@@ -38,7 +42,10 @@ class EdgeRumPlugin: CDVPlugin {
 
     override func pluginInitialize() {
         // A5: onload plugins start in viewDidLoad, once the WebView exists; close enough to "WebView created".
-        launch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now())
+        Self.launchLock.lock()
+        if Self.processLaunch == nil { Self.processLaunch = Launch(processStart: processStartedAt, webViewCreated: Outbox.now()) }
+        launch = Self.processLaunch
+        Self.launchLock.unlock()
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = support.appendingPathComponent("edge_rum")
         health = Health(dir: dir)
@@ -153,7 +160,7 @@ class EdgeRumPlugin: CDVPlugin {
         }
     }
 
-    /// E26: path transport changes → `network_change`; the first reading only seeds `network.type`.
+    /// E26: path transport changes → `network.change`; the first reading only seeds `network.type`.
     private func watchNetwork() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
@@ -215,7 +222,7 @@ class EdgeRumPlugin: CDVPlugin {
         ]
     }
 
-    /// E24: memory warning → `memory_pressure`.
+    /// E24: memory warning → `memory.pressure`.
     override func onMemoryWarning() {
         let at = Outbox.now()
         let footprint = Signals.footprintBytes()
@@ -232,10 +239,10 @@ class EdgeRumPlugin: CDVPlugin {
         if !events.isEmpty && consent.enabled { append(session.admitPassive(events)) }
     }
 
-    /// E22 / E23: footprint + RSS. Worker queue only.
-    private func sampleMemory(_ source: String) {
-        recordPassive(Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(), source: source,
-                                     at: Outbox.now()))
+    /// E22 / E23: one `memory.usage` (footprint, RSS alongside). Worker queue only.
+    private func sampleMemory(_ phase: String) {
+        recordPassive(Self.list(Signals.memory(footprint: Signals.footprintBytes(), resident: Signals.residentBytes(),
+                                               phase: phase, at: Outbox.now())))
     }
 
     /// E22: a new session gets its memory bookend, in the same segment (before any background seal).

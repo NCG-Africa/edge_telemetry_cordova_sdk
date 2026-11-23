@@ -1,13 +1,11 @@
 package com.nathanclaire.rum.cordova;
 
-import java.util.ArrayList;
-import java.util.List;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Spec E2, E22–E24, E26: native `app_lifecycle`, `memory_usage`, `memory_pressure` and
- * `network_change` records, N1 keys. The plugin reads the platform; these only shape it.
+ * Spec E2, E22–E24, E26: native `app.lifecycle`, `memory.usage`, `memory.pressure` and
+ * `network.change` records, catalogue keys. The plugin reads the platform; these only shape it.
  */
 final class Signals {
     private Signals() {
@@ -15,56 +13,52 @@ final class Signals {
 
     /** E2: native fg/bg (`foregrounded` / `backgrounded`, iOS vocabulary, N3); JS sends its own states. */
     static JSONObject lifecycle(String state, long at) throws JSONException {
-        return Crash.event("app_lifecycle", at, new JSONObject().put("lifecycle.state", state));
+        return Crash.event("app.lifecycle", at, new JSONObject().put("lifecycle.state", state));
     }
 
-    /** E22 / E23: one `memory_usage` per measure (RSS, PSS), in MB. A missing reading (< 0) is skipped. */
-    static List<JSONObject> memory(long rssKb, long pssKb, String source, long at) throws JSONException {
-        List<JSONObject> out = new ArrayList<>(2);
-        if (rssKb >= 0) out.add(memoryMetric(rssKb, "rss", source, at));
-        if (pssKb >= 0) out.add(memoryMetric(pssKb, "pss", source, at));
-        return out;
+    /**
+     * E22 / E23: one `memory.usage` in MB: total PSS, the catalogue's Android process footprint; RSS
+     * when PSS can't be read. `phase` is when it was taken. Null when neither could be read (< 0).
+     */
+    static JSONObject memory(long rssKb, long pssKb, String phase, long at) throws JSONException {
+        if (rssKb < 0 && pssKb < 0) return null;
+        JSONObject a = new JSONObject()
+                .put("memory.usage_mb", mb(pssKb >= 0 ? pssKb : rssKb))
+                .put("memory.source", pssKb >= 0 ? "pss" : "rss")
+                .put("memory.phase", phase);
+        if (pssKb >= 0) a.put("memory.total_pss_kb", pssKb);
+        if (rssKb >= 0) a.put("memory.resident_kb", rssKb);
+        return Crash.event("memory.usage", at, a);
     }
 
-    private static JSONObject memoryMetric(long kb, String type, String source, long at) throws JSONException {
-        double mb = mb(kb);
-        return new JSONObject()
-                .put("type", "metric")
-                .put("metricName", "memory_usage")
-                .put("value", mb)
-                .put("timestamp", Sender.rfc3339(at))
-                .put("attributes", new JSONObject()
-                        .put("metric.unit", "MB")
-                        .put("memory.usage_mb", mb)
-                        .put("memory.type", type)
-                        .put("memory.source", source));
+    /**
+     * E24: `ComponentCallbacks2` trim level → `memory.pressure`, the level mapped as the Android SDK
+     * does; UI_HIDDEN (20) is a backgrounding, not pressure → null.
+     */
+    static JSONObject pressure(int level, long pssKb, long at) throws JSONException {
+        String[] names = pressureLevel(level);
+        if (names == null) return null;
+        JSONObject a = new JSONObject().put("memory.pressure_level", names[1]).put("memory.trim_level", names[0]);
+        if (pssKb >= 0) a.put("memory.usage_mb", mb(pssKb)).put("memory.source", "pss");
+        return Crash.event("memory.pressure", at, a);
     }
 
-    /** E24: `ComponentCallbacks2` trim level → `memory_pressure`; UI_HIDDEN (20) is a backgrounding, not pressure → null. */
-    static JSONObject pressure(int level, long rssKb, long at) throws JSONException {
-        String name = pressureLevel(level);
-        if (name == null) return null;
-        JSONObject a = new JSONObject().put("memory.pressure_level", name).put("memory.trim_level", level);
-        if (rssKb >= 0) a.put("memory.usage_mb", mb(rssKb)).put("memory.type", "rss");
-        return Crash.event("memory_pressure", at, a.put("memory.source", "on_trim_memory"));
-    }
-
-    /** `TRIM_MEMORY_*` by value; `onLowMemory` arrives as 80 (complete). */
-    private static String pressureLevel(int level) {
+    /** `TRIM_MEMORY_*` by value → {trim level, `normal|moderate|critical`}; `onLowMemory` arrives as 80 (complete). */
+    private static String[] pressureLevel(int level) {
         switch (level) {
-            case 5: return "running_moderate";
-            case 10: return "running_low";
-            case 15: return "running_critical";
-            case 40: return "background";
-            case 60: return "moderate";
-            case 80: return "complete";
+            case 5: return new String[] {"running_moderate", "moderate"};
+            case 10: return new String[] {"running_low", "moderate"};
+            case 15: return new String[] {"running_critical", "critical"};
+            case 40: return new String[] {"background", "normal"};
+            case 60: return new String[] {"moderate", "moderate"};
+            case 80: return new String[] {"complete", "critical"};
             default: return null;
         }
     }
 
     /** E26: default network transport changed (`wifi` / `cellular` / `ethernet` / `other` / `none`). */
     static JSONObject network(String previous, String current, long at) throws JSONException {
-        return Crash.event("network_change", at, new JSONObject()
+        return Crash.event("network.change", at, new JSONObject()
                 .put("network.type", current)
                 .put("network.previous_type", previous));
     }
@@ -82,6 +76,7 @@ final class Signals {
         return -1;
     }
 
+    /** Binary MB (1 MB = 1024 kB), one decimal. */
     private static double mb(long kb) {
         return Math.round(kb / 102.4) / 10.0;
     }

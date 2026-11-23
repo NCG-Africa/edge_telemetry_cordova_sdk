@@ -18,25 +18,25 @@ const text = (v: unknown) => {
 };
 
 /**
- * E9–E11: one `app.crash`. `where` is a fallback frame when there is no Error to read a stack
- * from; `type` names non-Error throws.
+ * E9–E11: one crash-family event, `error.*` keys (catalogue crash.yaml). Uncaught → `app.crash`
+ * (`error.cause` `unhandled_exception` / `promise_rejection`); caught → `app.error` (`handled`).
+ * `where` is a fallback frame when there is no Error to read a stack from; `type` names non-Error throws.
  */
-export function crash(err: unknown, handled: boolean, { attrs, where, type = 'Error' }: { attrs?: Attributes; where?: string; type?: string } = {}) {
+export function crash(err: unknown, cause: 'unhandled_exception' | 'promise_rejection' | 'handled', { attrs, where, type = 'Error' }: { attrs?: Attributes; where?: string; type?: string } = {}) {
   const e = err instanceof Error ? err : undefined;
   const stack = e?.stack || where;
   record({
     type: 'event',
-    eventName: 'app.crash',
+    eventName: cause === 'handled' ? 'app.error' : 'app.crash',
     timestamp: now(),
     attributes: {
       ...attrs,
-      message: normaliseStack(e ? e.message : text(err)), // Y2: no raw copy
-      exception_type: e ? e.name : type,
-      ...(stack && { stacktrace: normaliseStack(stack) }),
-      handled,
-      is_fatal: !handled,
+      'error.message': normaliseStack(e ? e.message : text(err)), // Y2: no raw copy
+      'error.type': e ? e.name : type,
+      ...(stack && { 'error.stacktrace': normaliseStack(stack) }),
+      'error.cause': cause,
       runtime: 'webview',
-      'crash.breadcrumbs': breadcrumbsJson(),
+      'error.breadcrumbs': breadcrumbsJson(),
       ...(state.options.release && { release: state.options.release }),
     },
   });
@@ -47,13 +47,13 @@ if (live) {
     if (!state.options.captureErrors) return;
     const where = ev.filename ? `at ${ev.filename}:${ev.lineno}:${ev.colno}` : undefined;
     // A non-Error throw (`throw 'x'`) is the value itself; cross-origin "Script error." has none.
-    crash(ev.error ?? ev.message, false, { where });
+    crash(ev.error ?? ev.message, 'unhandled_exception', { where });
   });
   window.addEventListener('unhandledrejection', (ev) => {
-    if (state.options.captureErrors) crash(ev.reason, false, { type: 'UnhandledRejection' });
+    if (state.options.captureErrors) crash(ev.reason, 'promise_rejection', { type: 'UnhandledRejection' });
   });
 
-  // A3 / E11: console.* → breadcrumbs; console.error → handled crash only when opted in.
+  // A3 / E11: console.* → breadcrumbs; console.error → `app.error` only when opted in.
   // `busy`: a host `beforeSend` that logs would otherwise re-enter crash → flush → hook forever.
   let busy = false;
   for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
@@ -64,7 +64,7 @@ if (live) {
         busy = true;
         try {
           const line = args.map(text).join(' ');
-          if (level === 'error' && state.options.captureConsoleErrors) crash(args.find((a) => a instanceof Error) ?? line, true, { type: 'ConsoleError' });
+          if (level === 'error' && state.options.captureConsoleErrors) crash(args.find((a) => a instanceof Error) ?? line, 'handled', { type: 'ConsoleError' });
           breadcrumb('console', line, { level });
         } catch {
           // Capture must never break the host's logging.

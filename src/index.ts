@@ -63,18 +63,22 @@ export function clearUser(): void {
   call('clearUser');
 }
 
-/** Record a named host event. */
+/** Record a named host event (`custom.event`, your name in `event.name`). */
 export function track(name: string, attrs?: Attributes): void {
-  if (typeof name === 'string' && name) event('custom_event', { ...attrs, 'event.name': name });
+  if (typeof name === 'string' && name) event('custom.event', { ...attrs, 'event.name': name });
 }
 
-/** Record a host-named numeric value, e.g. `measure('cart.items', 3)`. */
+/** Record a host-named numeric value, e.g. `measure('cart.items', 3)` (`custom.metric`, your name in `metric.name`). */
 export function measure(name: string, value: number, attrs?: Attributes): void {
-  if (typeof name !== 'string' || !name || typeof value !== 'number' || !isFinite(value)) return;
-  record({ type: 'metric', metricName: name, value, timestamp: now(), attributes: { ...attrs } });
+  metric(name, value, attrs);
 }
 
-/** Start a timer; `end()` records the elapsed milliseconds via `measure()`. */
+function metric(name: string, value: number, attrs?: Attributes, unit?: string) {
+  if (typeof name !== 'string' || !name || typeof value !== 'number' || !isFinite(value)) return;
+  record({ type: 'metric', metricName: 'custom.metric', value, timestamp: now(), attributes: { ...attrs, 'metric.name': name, ...(unit && { 'metric.unit': unit }) } });
+}
+
+/** Start a timer; `end()` records the elapsed milliseconds as a `custom.metric` (`metric.unit: ms`). */
 export function time(name: string): Timer {
   const start = performance.now();
   let ended = false;
@@ -82,7 +86,7 @@ export function time(name: string): Timer {
     end(attrs) {
       if (ended) return;
       ended = true;
-      measure(name, performance.now() - start, attrs);
+      metric(name, performance.now() - start, attrs, 'ms');
     },
   };
 }
@@ -92,9 +96,9 @@ export function trackScreen(name: string, attrs?: Attributes): void {
   if (typeof name === 'string' && name) manual(name, attrs);
 }
 
-/** Report an error the app caught. */
+/** Report an error the app caught (`app.error`). */
 export function captureError(err: unknown, attrs?: Attributes): void {
-  crash(err, true, { attrs });
+  crash(err, 'handled', { attrs });
 }
 
 // E29, copied from edge_telemetry_flutter: a start costs nothing on the wire; one

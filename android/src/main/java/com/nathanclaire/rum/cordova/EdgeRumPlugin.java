@@ -157,12 +157,12 @@ public class EdgeRumPlugin extends CordovaPlugin {
         sender.trigger();
     }
 
-    /** E24: `onTrimMemory` / `onLowMemory` → `memory_pressure`. */
+    /** E24: `onTrimMemory` / `onLowMemory` → `memory.pressure`. */
     private void watchMemoryPressure(Context ctx) {
         trimCallback = new ComponentCallbacks2() {
             @Override public void onTrimMemory(int level) {
                 long at = System.currentTimeMillis();
-                capture(true, () -> list(Signals.pressure(level, rssKb(), at)));
+                capture(true, () -> list(Signals.pressure(level, pssKb(), at)));
             }
 
             @Override public void onLowMemory() {
@@ -175,7 +175,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
         ctx.getApplicationContext().registerComponentCallbacks(trimCallback);
     }
 
-    /** E26: default-network transport changes → `network_change`; the first reading only seeds `network.type`. */
+    /** E26: default-network transport changes → `network.change`; the first reading only seeds `network.type`. */
     private void watchNetwork(Context ctx) {
         ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
         ConnectivityManager.NetworkCallback cb = new ConnectivityManager.NetworkCallback() {
@@ -195,7 +195,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
             cm.registerDefaultNetworkCallback(cb);
             networkCallback = cb;
         } catch (RuntimeException e) {
-            // Missing permission (stripped manifest) or the per-app callback limit: no network_change.
+            // Missing permission (stripped manifest) or the per-app callback limit: no network.change.
             LOG.w(TAG, "network callback unavailable", e);
         }
     }
@@ -230,7 +230,7 @@ public class EdgeRumPlugin extends CordovaPlugin {
                     .put("device.model", Build.MODEL)
                     .put("device.manufacturer", Build.MANUFACTURER)
                     .put("device.brand", Build.BRAND)
-                    .put("device.android_sdk", String.valueOf(Build.VERSION.SDK_INT))
+                    .put("device.android_sdk", Build.VERSION.SDK_INT)
                     .put("device.android_release", Build.VERSION.RELEASE)
                     .put("device.hardware", Build.HARDWARE)
                     .put("device.product", Build.PRODUCT)
@@ -293,12 +293,21 @@ public class EdgeRumPlugin extends CordovaPlugin {
         return e == null ? Collections.<JSONObject>emptyList() : Collections.singletonList(e);
     }
 
-    /** E22 / E23: RSS + PSS, worker only (`getPss` walks smaps). */
-    private void sampleMemory(String source) {
+    /** E22 / E23: one `memory.usage` (PSS, RSS alongside); worker only (`getPss` walks smaps). */
+    private void sampleMemory(String phase) {
         try {
-            recordPassive(Signals.memory(rssKb(), Debug.getPss(), source, System.currentTimeMillis()));
+            recordPassive(list(Signals.memory(rssKb(), pssKb(), phase, System.currentTimeMillis())));
         } catch (JSONException | RuntimeException e) {
             LOG.w(TAG, "memory sample failed", e);
+        }
+    }
+
+    /** Total PSS in kB, -1 when unreadable. Walks smaps: never on the main thread. */
+    private static long pssKb() {
+        try {
+            return Debug.getPss();
+        } catch (RuntimeException e) {
+            return -1;
         }
     }
 

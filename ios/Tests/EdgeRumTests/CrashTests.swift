@@ -71,11 +71,6 @@ final class CrashTests: XCTestCase {
         return StubProtocol.requests.map { gunzip($0.body) }
     }
 
-    func assertGolden(_ name: String, _ body: String, file: StaticString = #filePath, line: UInt = #line) {
-        // Event dictionaries are unordered: compare parsed, not byte for byte.
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
-    }
-
     func attrs(_ e: [String: Any]?) -> [String: Any] {
         e?["attributes"] as? [String: Any] ?? [:]
     }
@@ -95,7 +90,7 @@ final class CrashTests: XCTestCase {
         let bodies = relaunchAndSend()
 
         XCTAssertEqual(bodies.count, 2, "crash batch + the open segment sealed at relaunch")
-        assertGolden("app-crash-native.json", bodies[0])
+        dumpGolden("app-crash-native.json", bodies[0])
         let events = json(bodies[1])["events"] as? [[String: Any]] ?? []
         XCTAssertEqual(events.last?["eventName"] as? String, "sdk.health", "sdk.health rides the normal batch")
     }
@@ -105,11 +100,30 @@ final class CrashTests: XCTestCase {
                                                           with: "signal 6\ncode 0\nfault_addr 0\n")
             .replacingOccurrences(of: "thread \nmain 1", with: "thread worker\nmain 0")
         let a = attrs(Crash.native(report, [:]))
-        XCTAssertEqual(a["message"] as? String, "SIGABRT, code 0, fault addr 0x0")
-        XCTAssertEqual(a["exception_type"] as? String, "SIGABRT")
-        XCTAssertEqual(a["cause"] as? String, "signal 6")
-        XCTAssertEqual(a["crash_thread"] as? String, "worker")
-        XCTAssertEqual(a["crash_is_main_thread"] as? Bool, false)
+        XCTAssertEqual(a["error.message"] as? String, "SIGABRT, code 0, fault addr 0x0")
+        XCTAssertEqual(a["error.type"] as? String, "SIGABRT")
+        XCTAssertEqual(a["error.cause"] as? String, "native_crash")
+        XCTAssertEqual(a["error.thread"] as? String, "worker")
+        XCTAssertEqual(a["error.is_main_thread"] as? Bool, false)
+        for old in ["message", "exception_type", "cause", "crash_thread", "crash_is_main_thread", "error_context", "is_fatal", "handled"] {
+            XCTAssertNil(a[old], old)
+        }
+    }
+
+    func testHangUsesCatalogueKeys() {
+        crash.mirror(Self.payload(0, "/cart"))
+        let a = attrs(crash.hang(durationMs: 2_100, frames: Self.frames))
+        XCTAssertEqual(a["hang.duration_ms"] as? Int64, 2_100)
+        XCTAssertEqual(a["error.type"] as? String, "Hang")
+        XCTAssertEqual(a["error.cause"] as? String, "hang")
+        XCTAssertEqual(a["error.message"] as? String, "Main thread blocked for 2100 ms")
+        XCTAssertEqual(a["screen.name"] as? String, "/cart")
+        XCTAssertNotNil(a["error.stacktrace"])
+        XCTAssertNotNil(a["error.binary_images"])
+        for old in ["hang_duration_ms", "message", "stacktrace", "screen_name", "crash_thread", "is_fatal", "handled",
+                    "crash.binary_images"] {
+            XCTAssertNil(a[old], old)
+        }
     }
 
     func testTornReportOrMissingContextIsDropped() throws {
@@ -129,24 +143,24 @@ final class CrashTests: XCTestCase {
         crash.saveContext(identity: Self.crashedIdentity, sessionId: "session_1", userId: nil)
         try Self.machReport.write(toFile: crash.reportPath, atomically: true, encoding: .utf8)
         let a = attrs(json(try XCTUnwrap(crash.takeReport()).event))
-        let crumbs = try JSONSerialization.jsonObject(with: Data((a["crash.breadcrumbs"] as? String ?? "").utf8)) as? [[String: Any]]
+        let crumbs = try JSONSerialization.jsonObject(with: Data((a["error.breadcrumbs"] as? String ?? "").utf8)) as? [[String: Any]]
         XCTAssertEqual(crumbs?.count, Crash.breadcrumbs)
         XCTAssertEqual(crumbs?.first?["message"] as? String, "crumb 20")
         XCTAssertEqual(crumbs?.last?["message"] as? String, "crumb 29")
-        XCTAssertEqual(a["screen_name"] as? String, "/a")
+        XCTAssertEqual(a["screen.name"] as? String, "/a")
     }
 
     func testClearForgetsEverything() throws {
         crash.mirror(Self.payload(3, "/a"))
         crash.clear()
         let a = attrs(crash.hang(durationMs: 2_000, frames: []))
-        XCTAssertNil(a["screen_name"])
+        XCTAssertNil(a["screen.name"])
     }
 
     func testHangGoldenBatch() throws {
         crash.mirror(Self.payload(0, "/cart"))
         try solo(crash.hang(durationMs: 2_100, frames: Self.frames))
-        assertGolden("app-hang.json", relaunchAndSend()[0])
+        dumpGolden("app-hang.json", relaunchAndSend()[0])
     }
 
     func testSampledOutSessionDropsHang() throws {
@@ -182,17 +196,17 @@ final class CrashTests: XCTestCase {
     func testMachHandlerWritesReportForBadAccess() throws {
         let (sig, a) = try crashChild { UnsafeMutablePointer<Int>(bitPattern: 8)!.pointee = 1 }
         XCTAssertTrue(sig == SIGSEGV || sig == SIGBUS, "died of \(sig)")
-        XCTAssertEqual(a["exception_type"] as? String, "EXC_BAD_ACCESS")
-        XCTAssertTrue((a["stacktrace"] as? String ?? "").contains("EdgeRumTests +0x"), a["stacktrace"] as? String ?? "")
+        XCTAssertEqual(a["error.type"] as? String, "EXC_BAD_ACCESS")
+        XCTAssertTrue((a["error.stacktrace"] as? String ?? "").contains("EdgeRumTests +0x"), a["error.stacktrace"] as? String ?? "")
     }
 
     func testSignalHandlerWritesReportForAbortAndWalksToTheCaller() throws {
         let (sig, a) = try crashChild { abort() }
         XCTAssertEqual(sig, SIGABRT)
-        XCTAssertEqual(a["exception_type"] as? String, "SIGABRT")
-        let stack = a["stacktrace"] as? String ?? ""
+        XCTAssertEqual(a["error.type"] as? String, "SIGABRT")
+        let stack = a["error.stacktrace"] as? String ?? ""
         XCTAssertTrue(stack.contains("EdgeRumTests +0x"), stack)
-        XCTAssertNotNil(a["crash.binary_images"])
+        XCTAssertNotNil(a["error.binary_images"])
     }
 
     /// Forks; the child installs the handlers and runs `body`, which must kill it.

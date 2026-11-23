@@ -132,6 +132,30 @@ describe('traceparent (E8)', () => {
     await window.fetch('https://api.example.com/a');
     expect(t.fetchCalls[0].init).toBeUndefined();
     expect(t.requests()[0].attributes['trace.id']).toBeUndefined();
+    expect(t.requests()[0].attributes).not.toHaveProperty('traceparent.outcome'); // absent = tracing not configured
+  });
+
+  it('traceparent.outcome: injected_unattributed / skipped_no_cors / adopted; off-list hosts carry none', async () => {
+    const t = await load();
+    t.api.init({ correlateRequestsTo: ['api.example.com'] });
+    const mine = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+    await window.fetch('https://api.example.com/a');
+    await window.fetch('https://api.example.com/b', { mode: 'no-cors' });
+    await window.fetch('https://api.example.com/c', { headers: { traceparent: mine } });
+    await window.fetch('https://other.example.com/d');
+    await window.fetch('https://api.example.com/e', { headers: { traceparent: 'garbage' } });
+    const x = t.xhr();
+    x.open('GET', 'https://api.example.com/f');
+    x.setRequestHeader('traceparent', mine);
+    x.send();
+    x.finish(200);
+    const rows = t.requests().map((r) => r.attributes);
+    expect(rows.map((a) => a['traceparent.outcome'])).toEqual(['injected_unattributed', 'skipped_no_cors', 'adopted', undefined, 'skipped_consumer_set', 'adopted']);
+    expect(rows[1]['trace.id']).toBeUndefined();
+    for (const a of [rows[2], rows[5]]) {
+      expect(a).toMatchObject({ 'trace.id': '0af7651916cd43dd8448eb211c80319c', 'span.id': 'b7ad6b7169203331' });
+    }
+    expect(rows[4]['trace.id']).toBeUndefined();
   });
 
   it('only allowlisted hosts (exact or RegExp) get it; ids match the event', async () => {
@@ -224,9 +248,9 @@ describe('resource timing (E7)', () => {
     t.api.init({ captureResourceTiming: true, endpoint: 'https://ingest.example.com/v1' });
     emit(entries);
     vi.unstubAllGlobals();
-    const metrics = t.flushed().flatMap((p) => p.events).filter((e) => e.metricName === 'resource_timing');
+    const metrics = t.flushed().flatMap((p) => p.events).filter((e) => e.metricName === 'perf.resource_timing');
     expect(metrics).toEqual([expect.objectContaining({
-      type: 'metric', value: 42, attributes: expect.objectContaining({ 'resource.url': 'https://cdn.example.com/img/123.png', 'resource.initiator_type': 'img' }),
+      type: 'metric', value: 42, attributes: expect.objectContaining({ 'metric.unit': 'ms', 'resource.host': 'cdn.example.com', 'resource.initiator_type': 'img' }),
     })]);
   });
 });

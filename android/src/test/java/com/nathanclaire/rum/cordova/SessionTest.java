@@ -83,15 +83,16 @@ public class SessionTest {
     @Test public void idleTimeoutRotatesWithBackdatedFinalizeAndFreshCounters() throws Exception {
         Session s = session(1.0);
         s.begin();
-        s.admit(java.util.Arrays.asList(event("navigation", "navigation.to_screen", "/home"), metric("LCP")));
+        s.admit(java.util.Arrays.asList(event("navigation", "navigation.to_screen", "/home"), metric("perf.lcp")));
         now += 60_000;
         s.admit(Collections.singletonList(event("navigation", "navigation.to_screen", "/cart")));
         now += Session.IDLE_MS + 1;
 
-        List<String> out = s.admit(Collections.singletonList(event("custom_event")));
-        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom_event"), names(out));
+        List<String> out = s.admit(Collections.singletonList(event("custom.event")));
+        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom.event"), names(out));
         JSONObject fin = parse(out).get(0).getJSONObject("attributes");
         assertEquals("session_1", fin.getString("session.id"));
+        assertEquals("timeout", fin.getString("session.reason"));
         assertEquals(60_000, fin.getLong("session.duration_ms"));
         assertEquals(2, fin.getInt("session.event_count"));
         assertEquals(1, fin.getInt("session.metric_count"));
@@ -103,6 +104,23 @@ public class SessionTest {
         assertEquals(2, started.getInt("session.total_sessions"));
         assertEquals("session_2", parse(out).get(2).getJSONObject("attributes").getString("session.id"));
         assertEquals("session_2", s.id());
+    }
+
+    @Test public void activeSessionEndsAtTheFourHourCap() throws Exception {
+        Session s = session(1.0);
+        s.begin();
+        long start = now;
+        while (now - start < Session.MAX_MS) {
+            now += 10 * 60_000;
+            if (now - start <= Session.MAX_MS) assertEquals(1, s.admit(Collections.singletonList(event("custom.event"))).size());
+        }
+        now += 1;
+        List<String> out = s.admit(Collections.singletonList(event("custom.event")));
+        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom.event"), names(out));
+        JSONObject fin = parse(out).get(0).getJSONObject("attributes");
+        assertEquals("max_duration", fin.getString("session.reason"));
+        assertEquals(Session.MAX_MS, fin.getLong("session.duration_ms"));
+        assertEquals(4 * 60 * 60_000L, Session.MAX_MS);
     }
 
     @Test public void rotateIfIdleOnlyRotatesPastTheTimeout() throws Exception {
@@ -147,9 +165,9 @@ public class SessionTest {
         assertFalse(started.getJSONObject("attributes").getBoolean("session.sampled"));
 
         List<JSONObject> in = java.util.Arrays.asList(
-                event("navigation"), metric("LCP"), event("app.hang"),
-                event("app.crash", "is_fatal", false),
-                event("app.crash", "is_fatal", true), event("app.anr"), event("app.exit"), event("app.start"),
+                event("navigation"), metric("perf.lcp"), event("app.hang"),
+                event("app.error"),
+                event("app.crash"), event("app.anr"), event("app.exit"), event("app.start"),
                 event("cordova.deviceready_timeout"), event("sdk.health"));
         assertEquals(java.util.Arrays.asList("app.crash", "app.anr", "app.exit", "app.start",
                 "cordova.deviceready_timeout", "sdk.health"), names(s.admit(in)));
@@ -189,11 +207,11 @@ public class SessionTest {
     @Test public void customCapIsCombinedAcrossCustomHostMetricsAndTasks() throws Exception {
         Session s = session(1.0);
         s.begin();
-        assertEquals(500, s.admit(repeat(event("custom_event"), 300)).size()
-                + s.admit(repeat(metric("checkout_ms"), 150)).size()
+        assertEquals(500, s.admit(repeat(event("custom.event"), 300)).size()
+                + s.admit(repeat(metric("custom.metric"), 150)).size()
                 + s.admit(repeat(event("task.complete"), 50)).size());
-        assertEquals(0, s.admit(java.util.Arrays.asList(event("custom_event"), metric("cart"), event("task.complete"))).size());
-        assertEquals(1, s.admit(Collections.singletonList(metric("LCP"))).size());
+        assertEquals(0, s.admit(java.util.Arrays.asList(event("custom.event"), metric("custom.metric"), event("task.complete"))).size());
+        assertEquals(1, s.admit(Collections.singletonList(metric("perf.lcp"))).size());
         assertEquals(Collections.singletonMap("events_dropped.cap.custom", 3L), health.snapshot());
     }
 
@@ -206,7 +224,7 @@ public class SessionTest {
         assertEquals(5, s.admit(repeat(crash("TypeError", "TypeError: x\n    at g (app:///main.js:9:9)"), 5)).size());
         for (int i = 0; i < 8; i++) s.admit(repeat(crash("E" + i, ""), 5));
         assertEquals("50 total", 0, s.admit(Collections.singletonList(crash("New", ""))).size());
-        assertEquals("fatal never capped", 1, s.admit(Collections.singletonList(event("app.crash", "is_fatal", true))).size());
+        assertEquals("app.crash never capped", 1, s.admit(Collections.singletonList(event("app.crash"))).size());
         assertEquals(Collections.singletonMap("events_dropped.cap.error", 2L), health.snapshot());
     }
 
@@ -271,22 +289,23 @@ public class SessionTest {
                 Collections.singletonList("session.started"), names(session(1.0).begin()));
     }
 
-    @Test public void bookendsMatchGoldenBatch() throws Exception {
-        assertBookendsGolden(1.0, 0.0, "session.json");
+    @Test public void bookendsAsGoldenBatch() throws Exception {
+        dumpBookendsGolden(1.0, 0.0, "session.json");
     }
 
-    @Test public void sampledBookendsMatchGoldenBatch() throws Exception {
-        assertBookendsGolden(0.5, 0.9, "session-sampled.json");
+    @Test public void sampledBookendsAsGoldenBatch() throws Exception {
+        dumpBookendsGolden(0.5, 0.9, "session-sampled.json");
     }
 
-    void assertBookendsGolden(double rate, double r, String golden) throws Exception {
+    void dumpBookendsGolden(double rate, double r, String golden) throws Exception {
         roll = r;
         userId = "u1";
         Session s = session(rate);
         List<String> lines = new ArrayList<>(s.begin());
-        lines.addAll(s.admit(Collections.singletonList(event("navigation", "navigation.to_screen", "/home"))));
+        lines.addAll(s.admit(Collections.singletonList(
+                event("navigation", "navigation.to_screen", "/home").put("timestamp", Sender.rfc3339(now)))));
         now += 5_000;
-        lines.addAll(s.admit(Collections.singletonList(metric("LCP"))));
+        lines.addAll(s.admit(Collections.singletonList(metric("perf.lcp").put("timestamp", Sender.rfc3339(now)))));
         now += Session.IDLE_MS + 1;
         lines.addAll(s.rotateIfIdle());
 
@@ -300,7 +319,7 @@ public class SessionTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            SenderTest.assertGolden(golden, SenderTest.gunzip(server.takeRequest()));
+            SenderTest.dumpGolden(golden, SenderTest.gunzip(server.takeRequest()));
         } finally {
             server.shutdown();
         }
@@ -314,8 +333,8 @@ public class SessionTest {
     }
 
     static JSONObject crash(String type, String stack) throws Exception {
-        JSONObject e = event("app.crash", "is_fatal", false);
-        e.getJSONObject("attributes").put("handled", true).put("exception_type", type).put("stacktrace", stack);
+        JSONObject e = event("app.error", "error.type", type);
+        e.getJSONObject("attributes").put("error.stacktrace", stack);
         return e;
     }
 
@@ -329,12 +348,12 @@ public class SessionTest {
         Session s = session(1.0);
         s.begin();
         now += Session.IDLE_MS / 2;
-        assertEquals(Collections.singletonList("network_change"), names(s.admitPassive(Collections.singletonList(event("network_change")))));
+        assertEquals(Collections.singletonList("network.change"), names(s.admitPassive(Collections.singletonList(event("network.change")))));
         now += Session.IDLE_MS / 2 + 1;
-        List<String> late = s.admitPassive(Collections.singletonList(event("memory_pressure")));
-        assertEquals("no rotation from the background", Collections.singletonList("memory_pressure"), names(late));
+        List<String> late = s.admitPassive(Collections.singletonList(event("memory.pressure")));
+        assertEquals("no rotation from the background", Collections.singletonList("memory.pressure"), names(late));
         assertEquals("session_1", parse(late).get(0).getJSONObject("attributes").getString("session.id"));
-        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom_event"),
-                names(s.admit(Collections.singletonList(event("custom_event")))));
+        assertEquals(java.util.Arrays.asList("session.finalized", "session.started", "custom.event"),
+                names(s.admit(Collections.singletonList(event("custom.event")))));
     }
 }

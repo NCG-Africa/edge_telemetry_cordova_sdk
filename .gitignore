@@ -10,3 +10,6 @@ android/build/
 android/.gradle/
 test-results/
 playwright-report/
+
+# Golden batches the tests dump (spec 2026-11-23 stable goldens); shapes in test/shape-*.txt
+test/golden-raw/

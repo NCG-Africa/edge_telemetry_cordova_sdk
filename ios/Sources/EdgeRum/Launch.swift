@@ -14,7 +14,7 @@ final class Launch {
         ("responseEnd", "app.start.response_end_ms"),
         ("DOMContentLoaded", "app.start.dom_content_loaded_ms"),
         ("load", "app.start.load_ms"),
-        (deviceready, "app.start.deviceready_ms"),
+        (deviceready, "app.start.bridge_ready_ms"),
         (markReady, "app.start.mark_ready_ms"),
     ]
 
@@ -50,10 +50,10 @@ final class Launch {
         return emitted || marks[Self.deviceready] == nil ? nil : emit()
     }
 
+    /// Catalogue app start: process start → bridge ready (`deviceready`); `markReady()` is a phase, not the end.
     private func emit() -> [String: Any] {
         emitted = true
-        let d = marks[Self.deviceready]!
-        let end = marks[Self.markReady].map { max($0, d) } ?? d
+        let end = marks[Self.deviceready]!
         var a: [String: Any] = [
             "app.start.type": "cold",
             "app.start.duration_ms": max(0, end - processStart),

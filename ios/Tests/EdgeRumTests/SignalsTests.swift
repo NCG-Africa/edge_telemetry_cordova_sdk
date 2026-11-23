@@ -45,8 +45,8 @@ final class SignalsTests: XCTestCase {
         e?["attributes"] as? [String: Any] ?? [:]
     }
 
-    /// The lines as one sent batch (`solo`: their own segment, as a crash), compared parsed.
-    static func assertGolden(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
+    /// The lines as one sent batch (`solo`: their own segment, as a crash), dumped as a golden batch.
+    static func dumpGoldenBatch(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         StubProtocol.reset()
         let sendAt: Int64 = 1_793_008_803_000 // 10:00:03.000Z
@@ -63,23 +63,37 @@ final class SignalsTests: XCTestCase {
         StubProtocol.replies = [.status(200)]
         sender.drain()
         let body = try XCTUnwrap(StubProtocol.requests.first.map { gunzip($0.body) }, file: file, line: line)
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
+        dumpGolden(name, body)
     }
 
     // MARK: - E22–E24, E26, E32
 
-    func testMemorySkipsMissingReadingsAndRoundsToTenthMB() {
-        XCTAssertEqual(Signals.memory(footprint: 1 << 20, resident: 2 << 20, source: "periodic", at: now).count, 2)
-        let one = Signals.memory(footprint: nil, resident: 196_608_000, source: "periodic", at: now)
-        XCTAssertEqual(one.count, 1)
-        XCTAssertEqual(one[0]["value"] as? Double, 187.5)
-        XCTAssertEqual(attrs(one[0])["memory.type"] as? String, "rss")
+    func testMemoryIsOneUsageEventInFootprintMbWithRssFallback() throws {
+        let e = try XCTUnwrap(Signals.memory(footprint: 1 << 20, resident: 2 << 20, phase: "periodic", at: now))
+        XCTAssertEqual(e["type"] as? String, "event")
+        XCTAssertEqual(e["eventName"] as? String, "memory.usage")
+        let a = attrs(e)
+        XCTAssertEqual(a["memory.usage_mb"] as? Double, 1.0)
+        XCTAssertEqual(a["memory.source"] as? String, "phys_footprint")
+        XCTAssertEqual(a["memory.phase"] as? String, "periodic")
+        XCTAssertEqual(a["memory.footprint_kb"] as? Int64, 1024)
+        XCTAssertEqual(a["memory.resident_kb"] as? Int64, 2048)
+        let rss = attrs(Signals.memory(footprint: nil, resident: 196_608_000, phase: "periodic", at: now))
+        XCTAssertEqual(rss["memory.usage_mb"] as? Double, 187.5)
+        XCTAssertEqual(rss["memory.source"] as? String, "rss")
+        XCTAssertNil(Signals.memory(footprint: nil, resident: nil, phase: "periodic", at: now))
     }
 
-    func testPressureWithoutReadingOmitsUsage() {
-        let a = attrs(Signals.pressure(footprint: nil, at: now))
-        XCTAssertEqual(a["memory.pressure_level"] as? String, "warning")
-        XCTAssertNil(a["memory.usage_mb"])
+    func testMemoryWarningIsCriticalPressure() {
+        let e = Signals.pressure(footprint: nil, at: now)
+        XCTAssertEqual(e["eventName"] as? String, "memory.pressure")
+        XCTAssertEqual(attrs(e)["memory.pressure_level"] as? String, "critical")
+        XCTAssertNil(attrs(e)["memory.usage_mb"])
+    }
+
+    func testLongTailNames() {
+        XCTAssertEqual(Signals.lifecycle("backgrounded", at: now)["eventName"] as? String, "app.lifecycle")
+        XCTAssertEqual(Signals.network(previous: "wifi", current: "none", at: now)["eventName"] as? String, "network.change")
     }
 
     func testProcessMemoryReadsThisProcess() {
@@ -102,7 +116,7 @@ final class SignalsTests: XCTestCase {
         _ = s.begin()
         t += Session.idleMs + 1
         XCTAssertEqual(SessionTests.names(s.admitPassive([Signals.network(previous: "wifi", current: "none", at: t)])),
-                       ["network_change"])
+                       ["network.change"])
         XCTAssertEqual(SessionTests.names(s.rotateIfIdle()), ["session.finalized", "session.started"],
                        "a background signal doesn't keep the session alive")
     }
@@ -129,12 +143,12 @@ final class SignalsTests: XCTestCase {
     func testGoldenBatches() throws {
         let s = session()
         s.context = { Self.deviceContext }
-        try Self.assertGolden("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
+        try Self.dumpGoldenBatch("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
         s.context = { [:] }
-        try Self.assertGolden("memory-usage.json", dir, health,
-                              s.admit(Signals.memory(footprint: 196_608_000, resident: 262_144_000, source: "session_start", at: now)))
-        try Self.assertGolden("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
-        try Self.assertGolden("network-change.json", dir, health,
+        try Self.dumpGoldenBatch("memory-usage.json", dir, health,
+                              s.admit([Signals.memory(footprint: 196_608_000, resident: 262_144_000, phase: "session_start", at: now)!]))
+        try Self.dumpGoldenBatch("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
+        try Self.dumpGoldenBatch("network-change.json", dir, health,
                               s.admit([Signals.network(previous: "wifi", current: "none", at: now)]))
     }
 
@@ -181,9 +195,10 @@ final class SignalsTests: XCTestCase {
         let crash = Crash(dir: dir, clock: { [unowned self] in now })
         crash.mirror(CrashTests.payload(1, "/checkout"))
         let e = crash.webViewTerminated(detectedBy: "callback")
-        try Self.assertGolden("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
+        try Self.dumpGoldenBatch("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
         let inferred = attrs(crash.webViewTerminated(detectedBy: "inference"))
         XCTAssertEqual(inferred["webview.detected_by"] as? String, "inference")
-        XCTAssertEqual(inferred["is_fatal"] as? Bool, true, "exempt from the roll (S2)")
+        XCTAssertEqual(inferred["error.cause"] as? String, "webview_terminated")
+        XCTAssertNil(inferred["is_fatal"], "app.crash says fatal, exempt from the roll (S2)")
     }
 }

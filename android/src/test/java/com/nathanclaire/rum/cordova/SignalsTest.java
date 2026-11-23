@@ -26,18 +26,41 @@ public class SignalsTest {
         assertEquals(-1, Signals.rssKb("VmRSS:\tjunk kB\n"));
     }
 
-    @Test public void memorySkipsMissingReadings() throws Exception {
-        assertEquals(2, Signals.memory(1024, 2048, "periodic", now).size());
-        List<JSONObject> pssOnly = Signals.memory(-1, 2048, "periodic", now);
-        assertEquals(1, pssOnly.size());
-        assertEquals(2.0, pssOnly.get(0).getDouble("value"), 0);
-        assertEquals("pss", pssOnly.get(0).getJSONObject("attributes").getString("memory.type"));
+    @Test public void memoryIsOneUsageEventInPssMbWithRssFallback() throws Exception {
+        JSONObject e = Signals.memory(1024, 2048, "periodic", now);
+        assertEquals("event", e.getString("type"));
+        assertEquals("memory.usage", e.getString("eventName"));
+        JSONObject a = e.getJSONObject("attributes");
+        assertEquals("1 MB = 1024 kB", 2.0, a.getDouble("memory.usage_mb"), 0);
+        assertEquals("pss", a.getString("memory.source"));
+        assertEquals("periodic", a.getString("memory.phase"));
+        assertEquals(1024, a.getLong("memory.resident_kb"));
+        assertEquals(2048, a.getLong("memory.total_pss_kb"));
+        JSONObject rssOnly = Signals.memory(1024, -1, "periodic", now).getJSONObject("attributes");
+        assertEquals(1.0, rssOnly.getDouble("memory.usage_mb"), 0);
+        assertEquals("rss", rssOnly.getString("memory.source"));
+        assertNull(Signals.memory(-1, -1, "periodic", now));
     }
 
-    @Test public void uiHiddenIsNotPressure() throws Exception {
-        assertNull(Signals.pressure(20, 1, now));
+    @Test public void trimLevelsMapToTheCatalogueEnum() throws Exception {
+        assertNull("UI_HIDDEN is a backgrounding", Signals.pressure(20, 1, now));
         assertNull(Signals.pressure(7, 1, now));
+        int[] levels = {5, 10, 15, 40, 60, 80};
+        String[] trim = {"running_moderate", "running_low", "running_critical", "background", "moderate", "complete"};
+        String[] level = {"moderate", "moderate", "critical", "normal", "moderate", "critical"};
+        for (int i = 0; i < levels.length; i++) {
+            JSONObject e = Signals.pressure(levels[i], 2048, now);
+            assertEquals("memory.pressure", e.getString("eventName"));
+            assertEquals(trim[i], e.getJSONObject("attributes").getString("memory.trim_level"));
+            assertEquals(level[i], e.getJSONObject("attributes").getString("memory.pressure_level"));
+        }
+        assertEquals(2.0, Signals.pressure(15, 2048, now).getJSONObject("attributes").getDouble("memory.usage_mb"), 0);
         assertFalse(Signals.pressure(15, -1, now).getJSONObject("attributes").has("memory.usage_mb"));
+    }
+
+    @Test public void longTailNames() throws Exception {
+        assertEquals("app.lifecycle", Signals.lifecycle("backgrounded", now).getString("eventName"));
+        assertEquals("network.change", Signals.network("wifi", "none", now).getString("eventName"));
     }
 
     @Test public void contextStampedButEventKeysWin() throws Exception {
@@ -64,7 +87,7 @@ public class SignalsTest {
                 .put("device.model", "Pixel 9")
                 .put("device.manufacturer", "Google")
                 .put("device.brand", "google")
-                .put("device.android_sdk", "36")
+                .put("device.android_sdk", 36)
                 .put("device.android_release", "16")
                 .put("device.hardware", "tokay")
                 .put("device.product", "tokay")
@@ -86,14 +109,14 @@ public class SignalsTest {
         JSONObject ctx = deviceContext();
         session.context(() -> ctx);
         List<String> lines = new ArrayList<>(session.admit(Collections.singletonList(Signals.lifecycle("backgrounded", now))));
-        SenderTest.assertGoldenBatch("app-lifecycle.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("app-lifecycle.json", dir, health, now, lines);
         session.context(JSONObject::new);
-        golden(session, dir, health, "memory-usage.json", Signals.memory(187392, 143360, "session_start", now));
-        golden(session, dir, health, "memory-pressure.json", Collections.singletonList(Signals.pressure(15, 187392, now)));
-        golden(session, dir, health, "network-change.json", Collections.singletonList(Signals.network("wifi", "none", now)));
+        admitAndDump(session, dir, health, "memory-usage.json", Collections.singletonList(Signals.memory(187392, 143360, "session_start", now)));
+        admitAndDump(session, dir, health, "memory-pressure.json", Collections.singletonList(Signals.pressure(15, 187392, now)));
+        admitAndDump(session, dir, health, "network-change.json", Collections.singletonList(Signals.network("wifi", "none", now)));
     }
 
-    void golden(Session session, File dir, Health health, String name, List<JSONObject> events) throws Exception {
-        SenderTest.assertGoldenBatch(name, dir, health, now, session.admit(events));
+    void admitAndDump(Session session, File dir, Health health, String name, List<JSONObject> events) throws Exception {
+        SenderTest.dumpGoldenBatch(name, dir, health, now, session.admit(events));
     }
 }

@@ -35,14 +35,14 @@ function markPhases() {
   }
 }
 
-/** E21: one metric per vital the WebView supports; web-vitals never calls back for the rest. */
+/** E21: one `perf.<vital>` metric per vital the WebView supports; web-vitals never calls back for the rest. */
 function observeVitals() {
   if (!state.options.captureVitals) return;
   const report = (m: Metric) => {
     const screen = currentScreen();
     record({
       type: 'metric',
-      metricName: m.name,
+      metricName: `perf.${m.name.toLowerCase()}`,
       value: m.value,
       timestamp: now(),
       attributes: { 'metric.unit': m.name === 'CLS' ? 'score' : 'ms', 'metric.rating': m.rating, ...(screen && { 'screen.name': screen }) },
@@ -55,7 +55,10 @@ function observeVitals() {
 
 // E20: rAF frame sampler. A frame is the gap between two visible rAF ticks.
 const FROZEN_MS = 700; // Android vitals' frozen frame
-const freshFrames = () => ({ total: 0, slow: 0, frozen: 0, max: 0, time: 0, longTasks: 0 });
+// Catalogue frames model: every window is sent, so a long screen still reports on a fixed
+// interval. Counted in frame time (visible gaps), as Android and Flutter cap theirs at 10 s.
+const WINDOW_MS = 10_000;
+const freshFrames = () => ({ total: 0, slow: 0, frozen: 0, max: 0, time: 0, longTasks: 0, start: '' });
 let frames = freshFrames();
 let lastTick: number | undefined;
 let longTasks = false;
@@ -64,11 +67,14 @@ function tick(t: number) {
   const visible = document.visibilityState === 'visible';
   if (visible && lastTick !== undefined) {
     const d = t - lastTick;
+    // The window starts where its first frame did (rum_frame_windows.ts = window start).
+    if (!frames.total) frames.start = new Date(Date.now() - d).toISOString();
     frames.total++;
     frames.time += d;
     frames.max = Math.max(frames.max, d);
     if (d >= (state.options.frameSlowThresholdMs ?? 34)) frames.slow++;
     if (d >= FROZEN_MS) frames.frozen++;
+    if (frames.time >= WINDOW_MS) sendFrames(currentScreen());
   }
   lastTick = visible ? t : undefined;
   requestAnimationFrame(tick);
@@ -183,15 +189,13 @@ function tagActions(cordova: Cordova) {
   });
 }
 
-/** E18 / E20: one `frame.summary` and one `bridge.summary` per service + action for the window ending. */
-function endWindow(screen?: string) {
-  lastTick = undefined; // the next frame starts a fresh gap (hidden time is never a frame)
-  const at: Attributes = screen ? { 'screen.name': screen } : {};
+/** E20: one `frame.summary` for the frames so far (none when no frame was drawn). */
+function sendFrames(screen?: string) {
   const f = frames;
   frames = freshFrames();
   if (f.total) {
     event('frame.summary', {
-      ...at,
+      ...(screen && { 'screen.name': screen }),
       'frame.total_frames': f.total,
       'frame.slow_frames': f.slow,
       'frame.frozen_frames': f.frozen,
@@ -200,8 +204,15 @@ function endWindow(screen?: string) {
       'frame.window_duration_ms': Math.round(f.time),
       'frame.source': 'raf',
       ...(longTasks && { 'frame.long_task_count': f.longTasks }),
-    });
+    }, f.start);
   }
+}
+
+/** E18 / E20: the window ending: its `frame.summary`, and one `bridge.summary` per service + action. */
+function endWindow(screen?: string) {
+  lastTick = undefined; // the next frame starts a fresh gap (hidden time is never a frame)
+  const at: Attributes = screen ? { 'screen.name': screen } : {};
+  sendFrames(screen);
   for (const g of groups.values()) {
     const ms = g.ms.sort((a, b) => a - b);
     event('bridge.summary', {

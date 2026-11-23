@@ -30,7 +30,7 @@ public class SenderTest {
             + "\"platform\":\"android\",\"version\":\"1.4.2\",\"build_number\":\"142\"},\"device_id\":\"device_1700000000000_0123456789abcdef_android\"}";
     static final List<String> EVENTS = Arrays.asList(
             "{\"type\":\"event\",\"eventName\":\"navigation\",\"timestamp\":\"2026-10-26T10:00:00.000Z\",\"attributes\":{\"navigation.to_screen\":\"/home\"}}",
-            "{\"type\":\"metric\",\"metricName\":\"LCP\",\"value\":812.5,\"timestamp\":\"2026-10-26T10:00:01.000Z\",\"attributes\":{}}");
+            "{\"type\":\"metric\",\"metricName\":\"perf.lcp\",\"value\":812.5,\"timestamp\":\"2026-10-26T10:00:01.000Z\",\"attributes\":{}}");
 
     @Rule public TemporaryFolder tmp = new TemporaryFolder();
     MockWebServer server = new MockWebServer();
@@ -65,15 +65,13 @@ public class SenderTest {
         }
     }
 
-    static JSONObject golden(String name) throws Exception {
-        try (InputStream in = SenderTest.class.getResourceAsStream("/golden/" + name);
-             Scanner s = new Scanner(in, "UTF-8").useDelimiter("\\A")) {
-            return new JSONObject(s.next());
-        }
+    /** Seals `lines` under {@link #IDENTITY}, sends them, and dumps the request as golden `name`. */
+    static void dumpGoldenBatch(String name, File dir, Health health, long now, List<String> lines)
+            throws Exception {
+        dumpGoldenBatch(name, dir, health, now, lines, "android");
     }
 
-    /** Seals `lines` under {@link #IDENTITY}, sends them, and checks the request against golden `name`. */
-    static void assertGoldenBatch(String name, File dir, Health health, long now, List<String> lines)
+    static void dumpGoldenBatch(String name, File dir, Health health, long now, List<String> lines, String set)
             throws Exception {
         Outbox outbox = new Outbox(dir, () -> now, health);
         outbox.append(IDENTITY, lines);
@@ -85,18 +83,29 @@ public class SenderTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            assertGolden(name, gunzip(server.takeRequest()));
+            dumpGolden(name, gunzip(server.takeRequest()), set);
         } finally {
             server.shutdown();
         }
     }
 
-    static void assertGolden(String name, String body) throws Exception {
-        // Key order is part of the snapshot: the envelope is written in a fixed order.
-        assertEquals(name + " drifted", golden(name).toString(2), new JSONObject(body).toString(2));
+    /**
+     * Spec 2026-11-23 stable goldens: dumps `body` to the gitignored `test/golden-raw/<set>` (gradle
+     * runs in `android/`); `scripts/conform.sh` checks it against the catalogue and its shape file.
+     */
+    static void dumpGolden(String name, String body) throws Exception {
+        dumpGolden(name, body, "android");
     }
 
-    @Test public void postsGzippedContractFourEnvelopeMatchingGolden() throws Exception {
+    static void dumpGolden(String name, String body, String set) throws Exception {
+        File dir = new File("../test/golden-raw/" + set);
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("can't create " + dir);
+        try (java.io.Writer w = new java.io.OutputStreamWriter(new java.io.FileOutputStream(new File(dir, name)), "UTF-8")) {
+            w.write(new JSONObject(body).toString(2) + "\n");
+        }
+    }
+
+    @Test public void postsGzippedContractFourEnvelopeAsGolden() throws Exception {
         sealedBatch();
         server.enqueue(new MockResponse().setResponseCode(202));
         sender.drain();
@@ -107,18 +116,18 @@ public class SenderTest {
         assertEquals("gzip", req.getHeader("Content-Encoding"));
         assertEquals("application/json", req.getHeader("Content-Type"));
         assertEquals("edge_key_secret", req.getHeader("X-API-Key"));
-        assertGolden("batch.json", gunzip(req));
+        dumpGolden("batch.json", gunzip(req));
         assertTrue(outbox.sealed().isEmpty());
     }
 
-    @Test public void appendsSdkHealthWithDropCountsMatchingGolden() throws Exception {
+    @Test public void appendsSdkHealthWithDropCountsAsGolden() throws Exception {
         health.count("outbox_full", 7);
         health.count("rejected", 2);
         sealedBatch();
         server.enqueue(new MockResponse().setResponseCode(200));
         sender.drain();
 
-        assertGolden("sdk-health.json", gunzip(server.takeRequest()));
+        dumpGolden("sdk-health.json", gunzip(server.takeRequest()));
         assertEquals(Collections.emptyMap(), health.snapshot());
     }
 

@@ -40,7 +40,7 @@ public class ExitsTest {
         JSONObject a = Exits.harvest(Arrays.asList(new Exits.Record(99, 7, 0, null, 0, 0, 1, big.toString())), store, now)
                 .get(0).getJSONObject("attributes");
         assertEquals("unknown_99", a.getString("exit.reason"));
-        assertEquals("unknown_7", a.getString("exit.importance"));
+        assertEquals("catalogue: the raw IMPORTANCE_* int", 7, a.get("exit.importance"));
         assertFalse("R15: null omitted", a.has("exit.description"));
         assertTrue(a.getString("exit.trace").endsWith("…[trace truncated]"));
     }
@@ -65,7 +65,7 @@ public class ExitsTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            SenderTest.assertGolden("app-exit.json", SenderTest.gunzip(server.takeRequest()));
+            SenderTest.dumpGolden("app-exit.json", SenderTest.gunzip(server.takeRequest()));
         } finally {
             server.shutdown();
         }

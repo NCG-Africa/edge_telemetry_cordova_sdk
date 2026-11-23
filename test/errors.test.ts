@@ -31,11 +31,12 @@ async function load() {
   api.init({ captureScreens: false }); // auto screens are ui.test.ts's; keep these payloads to what each test makes
   document.dispatchEvent(new Event('deviceready'));
   const events = () => payloads.flatMap((p) => p.events);
-  const crashes = () => events().filter((e) => e.eventName === 'app.crash');
   const flushed = () => {
     vi.advanceTimersByTime(2000);
     return payloads;
   };
+  // app.crash flushes at once; app.error waits for the timer.
+  const crashes = () => (flushed(), events().filter((e) => e.eventName === 'app.crash' || e.eventName === 'app.error'));
   return { api, errors, native, payloads, events, crashes, flushed };
 }
 
@@ -82,42 +83,47 @@ describe('JS errors (E9–E11)', () => {
     error.stack = 'TypeError: boom\n    at f (https://localhost/js/app.js:10:5)';
     window.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught TypeError: boom' }));
     expect(t.crashes()[0].attributes).toMatchObject({
-      message: 'boom', exception_type: 'TypeError', stacktrace: 'TypeError: boom\n    at f (app:///js/app.js:10:5)',
-      handled: false, is_fatal: true, runtime: 'webview',
+      'error.message': 'boom', 'error.type': 'TypeError', 'error.stacktrace': 'TypeError: boom\n    at f (app:///js/app.js:10:5)',
+      'error.cause': 'unhandled_exception', 'runtime': 'webview',
     });
+    expect(t.crashes()[0].eventName).toBe('app.crash');
+    for (const old of ['message', 'exception_type', 'stacktrace', 'handled', 'is_fatal', 'error.runtime', 'crash.breadcrumbs']) {
+      expect(t.crashes()[0].attributes).not.toHaveProperty(old);
+    }
+    expect(t.crashes()[0].attributes['error.breadcrumbs']).toBe('[]');
   });
 
   it('error event without an Error (cross-origin) → message + location frame', async () => {
     const t = await load();
     window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.', filename: 'file:///android_asset/www/a.js', lineno: 3, colno: 7 }));
-    expect(t.crashes()[0].attributes).toMatchObject({ message: 'Script error.', exception_type: 'Error', stacktrace: 'at app:///a.js:3:7', handled: false });
+    expect(t.crashes()[0].attributes).toMatchObject({ 'error.message': 'Script error.', 'error.type': 'Error', 'error.stacktrace': 'at app:///a.js:3:7', 'error.cause': 'unhandled_exception' });
   });
 
   it('non-Error throw → the thrown value as message', async () => {
     const t = await load();
     window.dispatchEvent(new ErrorEvent('error', { error: 'plain', message: 'Uncaught plain' }));
-    expect(t.crashes()[0].attributes).toMatchObject({ message: 'plain', exception_type: 'Error' });
+    expect(t.crashes()[0].attributes).toMatchObject({ 'error.message': 'plain', 'error.type': 'Error' });
   });
 
-  it('unhandled rejection → fatal app.crash; non-Error reasons kept as text', async () => {
+  it('unhandled rejection → app.crash, cause promise_rejection; non-Error reasons kept as text', async () => {
     const t = await load();
     window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new RangeError('nope') }));
     window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: { code: 7 } }));
     const [a, b] = t.crashes();
-    expect(a.attributes).toMatchObject({ message: 'nope', exception_type: 'RangeError', handled: false, is_fatal: true });
-    expect(b.attributes).toMatchObject({ message: '{"code":7}', exception_type: 'UnhandledRejection', is_fatal: true });
-    expect(b.attributes.stacktrace).toBeUndefined();
+    expect(a).toMatchObject({ eventName: 'app.crash', attributes: { 'error.message': 'nope', 'error.type': 'RangeError', 'error.cause': 'promise_rejection' } });
+    expect(b).toMatchObject({ eventName: 'app.crash', attributes: { 'error.message': '{"code":7}', 'error.type': 'UnhandledRejection', 'error.cause': 'promise_rejection' } });
+    expect(b.attributes['error.stacktrace']).toBeUndefined();
   });
 
-  it('captureError → handled, non-fatal, normalised, with release (Y1)', async () => {
+  it('captureError → app.error, cause handled, normalised, with release (Y1)', async () => {
     const t = await load();
     t.api.init({ release: 'web@1' });
     const error = new Error('caught');
     error.stack = 'Error: caught\n    at ionic://localhost/main.js:1:2';
     t.api.captureError(error);
-    expect(t.crashes()[0].attributes).toMatchObject({
-      handled: true, is_fatal: false, release: 'web@1', stacktrace: 'Error: caught\n    at app:///main.js:1:2',
-    });
+    expect(t.crashes()[0]).toMatchObject({ eventName: 'app.error', attributes: {
+      'error.cause': 'handled', 'release': 'web@1', 'error.stacktrace': 'Error: caught\n    at app:///main.js:1:2',
+    } });
   });
 
   it('captureErrors=false ignores uncaught errors but not captureError()', async () => {
@@ -125,18 +131,18 @@ describe('JS errors (E9–E11)', () => {
     t.api.init({ captureErrors: false });
     window.dispatchEvent(new ErrorEvent('error', { error: new Error('x') }));
     t.api.captureError(new Error('y'));
-    expect(t.crashes().map((e) => e.attributes.message)).toEqual(['y']);
+    expect(t.crashes().map((e) => e.attributes['error.message'])).toEqual(['y']);
   });
 
-  it('console.error → breadcrumb only by default; handled app.crash when captureConsoleErrors', async () => {
+  it('console.error → breadcrumb only by default; app.error when captureConsoleErrors', async () => {
     const t = await load();
     console.error('first');
     expect(t.flushed().flatMap((p) => p.events)).toEqual([]);
     t.api.init({ captureConsoleErrors: true });
     console.error('failed to load', new SyntaxError('bad json'));
-    expect(t.crashes()[0].attributes).toMatchObject({ message: 'bad json', exception_type: 'SyntaxError', handled: true, is_fatal: false });
+    expect(t.crashes()[0]).toMatchObject({ eventName: 'app.error', attributes: { 'error.message': 'bad json', 'error.type': 'SyntaxError', 'error.cause': 'handled' } });
     console.error('just text');
-    expect(t.crashes()[1].attributes).toMatchObject({ message: 'just text', exception_type: 'ConsoleError' });
+    expect(t.crashes()[1].attributes).toMatchObject({ 'error.message': 'just text', 'error.type': 'ConsoleError' });
   });
 
   it('a beforeSend that logs errors does not loop', async () => {
@@ -191,7 +197,7 @@ describe('breadcrumbs (A3)', () => {
     t.api.disable();
     t.api.enable();
     t.api.captureError(new Error('x'));
-    expect(t.crashes()[0].attributes['crash.breadcrumbs']).toBe('[]');
+    expect(t.crashes()[0].attributes['error.breadcrumbs']).toBe('[]');
     expect(t.payloads.flatMap((p) => p.breadcrumbs)).toEqual([]);
   });
 
@@ -199,7 +205,7 @@ describe('breadcrumbs (A3)', () => {
     const t = await load();
     for (let i = 0; i < 55; i++) console.log('c' + i);
     t.api.captureError(new Error('x'));
-    const ring = JSON.parse(t.crashes()[0].attributes['crash.breadcrumbs'] as string) as { message: string }[];
+    const ring = JSON.parse(t.crashes()[0].attributes['error.breadcrumbs'] as string) as { message: string }[];
     expect(ring).toHaveLength(50);
     expect(ring[0].message).toBe('c5');
     expect(ring[49].message).toBe('c54');

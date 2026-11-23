@@ -1,0 +1,127 @@
+app.anr event anr.duration_ms number
+app.anr event error.cause string
+app.anr event error.is_main_thread bool
+app.anr event error.message string
+app.anr event error.stacktrace string
+app.anr event error.thread string
+app.anr event error.type string
+app.anr event screen.name string
+app.anr event session.id string
+app.anr event user.id string
+app.crash event error.breadcrumbs string
+app.crash event error.cause string
+app.crash event error.is_main_thread bool
+app.crash event error.message string
+app.crash event error.stacktrace string
+app.crash event error.thread string
+app.crash event error.type string
+app.crash event screen.name string
+app.crash event session.id string
+app.crash event user.id string
+app.crash event webview.detected_by string
+app.crash event webview.reason string
+app.exit event exit.description string
+app.exit event exit.importance number
+app.exit event exit.pss_kb number
+app.exit event exit.reason string
+app.exit event exit.rss_kb number
+app.exit event exit.status number
+app.exit event exit.timestamp number
+app.exit event exit.trace string
+app.exit event session.id string
+app.hang event error.cause string
+app.hang event error.is_main_thread bool
+app.hang event error.message string
+app.hang event error.stacktrace string
+app.hang event error.thread string
+app.hang event error.type string
+app.hang event hang.duration_ms number
+app.hang event screen.name string
+app.hang event session.id string
+app.hang event user.id string
+app.lifecycle event device.android_release string
+app.lifecycle event device.android_sdk number
+app.lifecycle event device.brand string
+app.lifecycle event device.cpu_abi string
+app.lifecycle event device.cpu_cores number
+app.lifecycle event device.hardware string
+app.lifecycle event device.locale string
+app.lifecycle event device.low_ram bool
+app.lifecycle event device.manufacturer string
+app.lifecycle event device.model string
+app.lifecycle event device.platform string
+app.lifecycle event device.platform_version string
+app.lifecycle event device.product string
+app.lifecycle event device.screen_density number
+app.lifecycle event device.screen_height_px number
+app.lifecycle event device.screen_width_px number
+app.lifecycle event device.timezone string
+app.lifecycle event lifecycle.state string
+app.lifecycle event network.type string
+app.lifecycle event session.id string
+app.start event app.start.bridge_ready_ms number
+app.start event app.start.dom_content_loaded_ms number
+app.start event app.start.duration_ms number
+app.start event app.start.load_ms number
+app.start event app.start.mark_ready_ms number
+app.start event app.start.response_end_ms number
+app.start event app.start.type string
+app.start event app.start.webview_created_ms number
+app.start event session.id string
+cordova.deviceready_timeout event cordova.deviceready_timeout_ms number
+cordova.deviceready_timeout event session.id string
+envelope app.build_number string
+envelope app.name string
+envelope app.package_name string
+envelope app.platform string
+envelope app.version string
+envelope batch_size number
+envelope contract_version string
+envelope device_id string
+envelope sdk.name string
+envelope sdk.version string
+envelope timestamp string
+envelope type string
+memory.pressure event memory.pressure_level string
+memory.pressure event memory.source string
+memory.pressure event memory.trim_level string
+memory.pressure event memory.usage_mb number
+memory.pressure event session.id string
+memory.usage event memory.phase string
+memory.usage event memory.resident_kb number
+memory.usage event memory.source string
+memory.usage event memory.total_pss_kb number
+memory.usage event memory.usage_mb number
+memory.usage event session.id string
+navigation event navigation.to_screen string
+navigation event session.id string
+navigation event user.id string
+network.change event network.previous_type string
+network.change event network.type string
+network.change event session.id string
+perf.lcp metric session.id string
+perf.lcp metric user.id string
+sdk.health event events_dropped.outbox_full number
+sdk.health event events_dropped.rejected number
+sdk.health event queue_depth number
+session.finalized event session.duration_ms number
+session.finalized event session.event_count number
+session.finalized event session.id string
+session.finalized event session.metric_count number
+session.finalized event session.reason string
+session.finalized event session.sampled bool
+session.finalized event session.screen_count number
+session.finalized event session.start_time string
+session.finalized event session.visited_screens string
+session.finalized event user.id string
+session.started event session.id string
+session.started event session.is_first_session bool
+session.started event session.sampled bool
+session.started event session.start_time string
+session.started event session.total_sessions number
+session.started event user.id string
+user.profile.update event session.id string
+user.profile.update event user.email string
+user.profile.update event user.id string
+user.profile.update event user.name string
+user.profile.update event user.phone string
