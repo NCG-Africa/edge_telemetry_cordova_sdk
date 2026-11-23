@@ -102,7 +102,7 @@ public class CrashTest {
         List<String> bodies = relaunchAndSend();
 
         assertEquals("crash batch + the open segment sealed at relaunch", 2, bodies.size());
-        SenderTest.assertGolden("app-crash-jvm.json", bodies.get(0));
+        SenderTest.dumpGolden("app-crash-jvm.json", bodies.get(0));
         JSONObject normal = new JSONObject(bodies.get(1));
         JSONArray events = normal.getJSONArray("events");
         assertEquals("sdk.health rides the normal batch", "sdk.health", events.getJSONObject(events.length() - 1).getString("eventName"));
@@ -154,7 +154,7 @@ public class CrashTest {
         assertEquals(CRASHED_IDENTITY, p.identity);
         assertNull("report consumed", next.takeNdk());
         outbox.writeSolo(p.identity, p.event);
-        SenderTest.assertGolden("app-crash-ndk.json", relaunchAndSend().get(0));
+        SenderTest.dumpGolden("app-crash-ndk.json", relaunchAndSend().get(0));
     }
 
     @Test public void tornNdkReportIsDropped() throws Exception {
@@ -190,8 +190,8 @@ public class CrashTest {
         now += 1;
         solo(crash.stall("app.anr", 5_000, stack), SenderTest.IDENTITY);
         List<String> bodies = relaunchAndSend();
-        SenderTest.assertGolden("app-hang.json", bodies.get(0));
-        SenderTest.assertGolden("app-anr.json", bodies.get(1));
+        SenderTest.dumpGolden("app-hang.json", bodies.get(0));
+        SenderTest.dumpGolden("app-anr.json", bodies.get(1));
     }
 
     @Test public void sampledOutSessionKeepsAnrDropsHang() throws Exception {
@@ -253,6 +253,6 @@ public class CrashTest {
     @Test public void webViewTerminatedGoldenBatch() throws Exception {
         crash.mirror(payload(1, "/checkout"));
         solo(crash.webViewTerminated("crash"), SenderTest.IDENTITY);
-        SenderTest.assertGolden("app-crash-webview.json", relaunchAndSend().get(0));
+        SenderTest.dumpGolden("app-crash-webview.json", relaunchAndSend().get(0));
     }
 }

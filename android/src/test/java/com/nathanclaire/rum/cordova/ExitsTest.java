@@ -65,7 +65,7 @@ public class ExitsTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            SenderTest.assertGolden("app-exit.json", SenderTest.gunzip(server.takeRequest()));
+            SenderTest.dumpGolden("app-exit.json", SenderTest.gunzip(server.takeRequest()));
         } finally {
             server.shutdown();
         }

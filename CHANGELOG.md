@@ -2,6 +2,13 @@
 
 All notable changes to `@nathanclaire/rum-cordova` are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Wire keys follow catalogue 4.8 (#61): JS errors send `runtime` and `release` (were `error.runtime`, `error.release`); `perf.resource_timing` sends `resource.host` (was the scrubbed `resource.url`).
+- Goldens (spec 2026-11-23 stable goldens, #61): tests dump raw batches to the gitignored `test/golden-raw/`; `scripts/conform.sh` checks them against the catalogue pinned in `catalogue.version` and the committed `test/shape-{js,android,ios}.txt`. The committed golden JSON and `UPDATE_GOLDEN` are gone.
+
 ## 1.0.0
 
 First release. Real User Monitoring for Cordova apps on Android (cordova-android ≥ 15) and iOS (cordova-ios ≥ 8).

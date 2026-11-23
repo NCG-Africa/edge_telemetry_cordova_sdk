@@ -35,9 +35,9 @@ export function crash(err: unknown, cause: 'unhandled_exception' | 'promise_reje
       'error.type': e ? e.name : type,
       ...(stack && { 'error.stacktrace': normaliseStack(stack) }),
       'error.cause': cause,
-      'error.runtime': 'webview',
+      runtime: 'webview',
       'error.breadcrumbs': breadcrumbsJson(),
-      ...(state.options.release && { 'error.release': state.options.release }),
+      ...(state.options.release && { release: state.options.release }),
     },
   });
 }

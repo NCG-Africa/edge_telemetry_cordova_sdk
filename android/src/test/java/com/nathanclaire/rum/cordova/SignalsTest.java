@@ -109,14 +109,14 @@ public class SignalsTest {
         JSONObject ctx = deviceContext();
         session.context(() -> ctx);
         List<String> lines = new ArrayList<>(session.admit(Collections.singletonList(Signals.lifecycle("backgrounded", now))));
-        SenderTest.assertGoldenBatch("app-lifecycle.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("app-lifecycle.json", dir, health, now, lines);
         session.context(JSONObject::new);
-        golden(session, dir, health, "memory-usage.json", Collections.singletonList(Signals.memory(187392, 143360, "session_start", now)));
-        golden(session, dir, health, "memory-pressure.json", Collections.singletonList(Signals.pressure(15, 187392, now)));
-        golden(session, dir, health, "network-change.json", Collections.singletonList(Signals.network("wifi", "none", now)));
+        admitAndDump(session, dir, health, "memory-usage.json", Collections.singletonList(Signals.memory(187392, 143360, "session_start", now)));
+        admitAndDump(session, dir, health, "memory-pressure.json", Collections.singletonList(Signals.pressure(15, 187392, now)));
+        admitAndDump(session, dir, health, "network-change.json", Collections.singletonList(Signals.network("wifi", "none", now)));
     }
 
-    void golden(Session session, File dir, Health health, String name, List<JSONObject> events) throws Exception {
-        SenderTest.assertGoldenBatch(name, dir, health, now, session.admit(events));
+    void admitAndDump(Session session, File dir, Health health, String name, List<JSONObject> events) throws Exception {
+        SenderTest.dumpGoldenBatch(name, dir, health, now, session.admit(events));
     }
 }

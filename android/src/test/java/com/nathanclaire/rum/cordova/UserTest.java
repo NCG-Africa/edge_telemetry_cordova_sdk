@@ -24,7 +24,7 @@ public class UserTest {
         JSONObject update = user.identify(new JSONObject().put("id", "u1").put("name", "Ann").put("email", "ann@example.com")
                 .put("phone", "+254700000000"));
         update.put("timestamp", Sender.rfc3339(now));
-        SenderTest.assertGoldenBatch("user-profile-update.json", dir, health, now, session.admit(Collections.singletonList(update)));
+        SenderTest.dumpGoldenBatch("user-profile-update.json", dir, health, now, session.admit(Collections.singletonList(update)));
     }
 
     @Test public void identifyPersistsAndEmitsProfileUpdateOnlyWhenTraitsChange() throws Exception {

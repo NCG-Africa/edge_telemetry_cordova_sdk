@@ -71,12 +71,6 @@ final class CrashTests: XCTestCase {
         return StubProtocol.requests.map { gunzip($0.body) }
     }
 
-    func assertGolden(_ name: String, _ body: String, file: StaticString = #filePath, line: UInt = #line) {
-        recordGolden(name, body)
-        // Event dictionaries are unordered: compare parsed, not byte for byte.
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
-    }
-
     func attrs(_ e: [String: Any]?) -> [String: Any] {
         e?["attributes"] as? [String: Any] ?? [:]
     }
@@ -96,7 +90,7 @@ final class CrashTests: XCTestCase {
         let bodies = relaunchAndSend()
 
         XCTAssertEqual(bodies.count, 2, "crash batch + the open segment sealed at relaunch")
-        assertGolden("app-crash-native.json", bodies[0])
+        dumpGolden("app-crash-native.json", bodies[0])
         let events = json(bodies[1])["events"] as? [[String: Any]] ?? []
         XCTAssertEqual(events.last?["eventName"] as? String, "sdk.health", "sdk.health rides the normal batch")
     }
@@ -166,7 +160,7 @@ final class CrashTests: XCTestCase {
     func testHangGoldenBatch() throws {
         crash.mirror(Self.payload(0, "/cart"))
         try solo(crash.hang(durationMs: 2_100, frames: Self.frames))
-        assertGolden("app-hang.json", relaunchAndSend()[0])
+        dumpGolden("app-hang.json", relaunchAndSend()[0])
     }
 
     func testSampledOutSessionDropsHang() throws {

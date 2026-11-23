@@ -296,15 +296,15 @@ final class SessionTests: XCTestCase {
         XCTAssertEqual(Self.names(session(1).begin()), ["session.started"])
     }
 
-    func testBookendsMatchGoldenBatch() throws {
-        try assertBookendsGolden(rate: 1, roll: 0, golden: "session.json")
+    func testBookendsAsGoldenBatch() throws {
+        try dumpBookendsGolden(rate: 1, roll: 0, golden: "session.json")
     }
 
-    func testSampledBookendsMatchGoldenBatch() throws {
-        try assertBookendsGolden(rate: 0.5, roll: 0.9, golden: "session-sampled.json")
+    func testSampledBookendsAsGoldenBatch() throws {
+        try dumpBookendsGolden(rate: 0.5, roll: 0.9, golden: "session-sampled.json")
     }
 
-    func assertBookendsGolden(rate: Double, roll r: Double, golden name: String) throws {
+    func dumpBookendsGolden(rate: Double, roll r: Double, golden name: String) throws {
         roll = r
         userId = "u1"
         let s = session(rate)
@@ -328,8 +328,6 @@ final class SessionTests: XCTestCase {
         sender.configure(apiKey: "k", url: SenderTests.endpoint)
         StubProtocol.replies = [.status(200)]
         sender.drain()
-        recordGolden(name, gunzip(StubProtocol.requests[0].body))
-        // Event dictionaries are unordered: compare parsed, not byte for byte.
-        XCTAssertEqual(json(gunzip(StubProtocol.requests[0].body)) as NSDictionary, json(golden(name)) as NSDictionary)
+        dumpGolden(name, gunzip(StubProtocol.requests[0].body))
     }
 }

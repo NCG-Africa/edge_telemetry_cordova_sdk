@@ -167,12 +167,18 @@ function observeResources() {
     if (!state.options.captureResourceTiming) return;
     for (const r of list.getEntries() as PerformanceResourceTiming[]) {
       if (ignored(r.name)) continue;
+      let host: string;
+      try {
+        host = new URL(r.name, location.href).host;
+      } catch {
+        continue; // never let one odd entry drop the rest of the list
+      }
       record({
         type: 'metric',
         metricName: 'perf.resource_timing',
         value: Math.round(r.duration),
         timestamp: now(),
-        attributes: { 'metric.unit': 'ms', 'resource.url': scrubUrl(r.name), 'resource.initiator_type': r.initiatorType },
+        attributes: { 'metric.unit': 'ms', 'resource.host': host, 'resource.initiator_type': r.initiatorType },
       });
     }
   }).observe({ type: 'resource', buffered: true });

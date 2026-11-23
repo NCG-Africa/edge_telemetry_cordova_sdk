@@ -250,7 +250,7 @@ describe('resource timing (E7)', () => {
     vi.unstubAllGlobals();
     const metrics = t.flushed().flatMap((p) => p.events).filter((e) => e.metricName === 'perf.resource_timing');
     expect(metrics).toEqual([expect.objectContaining({
-      type: 'metric', value: 42, attributes: expect.objectContaining({ 'metric.unit': 'ms', 'resource.url': 'https://cdn.example.com/img/123.png', 'resource.initiator_type': 'img' }),
+      type: 'metric', value: 42, attributes: expect.objectContaining({ 'metric.unit': 'ms', 'resource.host': 'cdn.example.com', 'resource.initiator_type': 'img' }),
     })]);
   });
 });

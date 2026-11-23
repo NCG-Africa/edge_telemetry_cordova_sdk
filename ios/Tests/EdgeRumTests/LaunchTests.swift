@@ -97,8 +97,8 @@ final class LaunchTests: XCTestCase {
         _ = launch.mark("deviceready", Self.t0 + 700)
         Launch.timedOut(defaults, timeoutMs: 10_000, now: Self.t0 - 50_000)
         let start = try XCTUnwrap(launch.mark("markReady", Self.t0 + 1500))
-        try SignalsTests.assertGolden("app-start.json", dir, health, session.admit([start]))
+        try SignalsTests.dumpGoldenBatch("app-start.json", dir, health, session.admit([start]))
         let timeout = try XCTUnwrap(Launch.takeTimeout(defaults))
-        try SignalsTests.assertGolden("cordova-deviceready-timeout.json", dir, health, session.admit([timeout]))
+        try SignalsTests.dumpGoldenBatch("cordova-deviceready-timeout.json", dir, health, session.admit([timeout]))
     }
 }

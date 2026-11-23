@@ -358,7 +358,7 @@ describe('API methods (C4)', () => {
     t.api.captureError(new RangeError('nope'), { step: 'pay' });
     t.api.captureError('plain string');
     const [a, b] = t.flushed();
-    expect(a).toMatchObject({ eventName: 'app.error', attributes: { 'error.message': 'nope', 'error.type': 'RangeError', 'error.cause': 'handled', 'error.runtime': 'webview', 'error.release': 'web@1', step: 'pay' } });
+    expect(a).toMatchObject({ eventName: 'app.error', attributes: { 'error.message': 'nope', 'error.type': 'RangeError', 'error.cause': 'handled', 'runtime': 'webview', 'release': 'web@1', step: 'pay' } });
     expect(a.attributes['error.stacktrace']).toContain('RangeError');
     expect(b.attributes).toMatchObject({ 'error.message': 'plain string', 'error.type': 'Error' });
   });

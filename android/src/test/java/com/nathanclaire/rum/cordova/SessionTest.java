@@ -289,15 +289,15 @@ public class SessionTest {
                 Collections.singletonList("session.started"), names(session(1.0).begin()));
     }
 
-    @Test public void bookendsMatchGoldenBatch() throws Exception {
-        assertBookendsGolden(1.0, 0.0, "session.json");
+    @Test public void bookendsAsGoldenBatch() throws Exception {
+        dumpBookendsGolden(1.0, 0.0, "session.json");
     }
 
-    @Test public void sampledBookendsMatchGoldenBatch() throws Exception {
-        assertBookendsGolden(0.5, 0.9, "session-sampled.json");
+    @Test public void sampledBookendsAsGoldenBatch() throws Exception {
+        dumpBookendsGolden(0.5, 0.9, "session-sampled.json");
     }
 
-    void assertBookendsGolden(double rate, double r, String golden) throws Exception {
+    void dumpBookendsGolden(double rate, double r, String golden) throws Exception {
         roll = r;
         userId = "u1";
         Session s = session(rate);
@@ -319,7 +319,7 @@ public class SessionTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            SenderTest.assertGolden(golden, SenderTest.gunzip(server.takeRequest()));
+            SenderTest.dumpGolden(golden, SenderTest.gunzip(server.takeRequest()));
         } finally {
             server.shutdown();
         }

@@ -65,15 +65,13 @@ public class SenderTest {
         }
     }
 
-    static JSONObject golden(String name) throws Exception {
-        try (InputStream in = SenderTest.class.getResourceAsStream("/golden/" + name);
-             Scanner s = new Scanner(in, "UTF-8").useDelimiter("\\A")) {
-            return new JSONObject(s.next());
-        }
+    /** Seals `lines` under {@link #IDENTITY}, sends them, and dumps the request as golden `name`. */
+    static void dumpGoldenBatch(String name, File dir, Health health, long now, List<String> lines)
+            throws Exception {
+        dumpGoldenBatch(name, dir, health, now, lines, "android");
     }
 
-    /** Seals `lines` under {@link #IDENTITY}, sends them, and checks the request against golden `name`. */
-    static void assertGoldenBatch(String name, File dir, Health health, long now, List<String> lines)
+    static void dumpGoldenBatch(String name, File dir, Health health, long now, List<String> lines, String set)
             throws Exception {
         Outbox outbox = new Outbox(dir, () -> now, health);
         outbox.append(IDENTITY, lines);
@@ -85,66 +83,29 @@ public class SenderTest {
             sender.configure("k", server.url("/").toString());
             server.enqueue(new MockResponse().setResponseCode(200));
             sender.drain();
-            assertGolden(name, gunzip(server.takeRequest()));
+            dumpGolden(name, gunzip(server.takeRequest()), set);
         } finally {
             server.shutdown();
         }
     }
 
-    /** The wire body indented two spaces, key order and escapes as sent. */
-    static String pretty(String body) {
-        StringBuilder out = new StringBuilder();
-        int depth = 0;
-        boolean inString = false;
-        boolean escaped = false;
-        for (int i = 0; i < body.length(); i++) {
-            char c = body.charAt(i);
-            if (inString) {
-                out.append(c);
-                if (escaped) escaped = false;
-                else if (c == '\\') escaped = true;
-                else if (c == '"') inString = false;
-                continue;
-            }
-            switch (c) {
-                case '"': inString = true; out.append(c); break;
-                case '{': case '[':
-                    char close = c == '{' ? '}' : ']';
-                    if (i + 1 < body.length() && body.charAt(i + 1) == close) {
-                        out.append(c).append(close);
-                        i++;
-                    } else {
-                        out.append(c).append('\n');
-                        indent(out, ++depth);
-                    }
-                    break;
-                case '}': case ']': out.append('\n'); indent(out, --depth); out.append(c); break;
-                case ',': out.append(",\n"); indent(out, depth); break;
-                case ':': out.append(": "); break;
-                default: if (!Character.isWhitespace(c)) out.append(c);
-            }
+    /**
+     * Spec 2026-11-23 stable goldens: dumps `body` to the gitignored `test/golden-raw/<set>` (gradle
+     * runs in `android/`); `scripts/conform.sh` checks it against the catalogue and its shape file.
+     */
+    static void dumpGolden(String name, String body) throws Exception {
+        dumpGolden(name, body, "android");
+    }
+
+    static void dumpGolden(String name, String body, String set) throws Exception {
+        File dir = new File("../test/golden-raw/" + set);
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("can't create " + dir);
+        try (java.io.Writer w = new java.io.OutputStreamWriter(new java.io.FileOutputStream(new File(dir, name)), "UTF-8")) {
+            w.write(new JSONObject(body).toString(2) + "\n");
         }
-        return out.append('\n').toString();
     }
 
-    private static void indent(StringBuilder out, int depth) {
-        for (int i = 0; i < depth; i++) out.append("  ");
-    }
-
-    static void assertGolden(String name, String body) throws Exception {
-        // Re-record after a deliberate wire change: `UPDATE_GOLDEN=1 gradle -p android test`, then review the diff.
-        if ("1".equals(System.getenv("UPDATE_GOLDEN"))) {
-            try (java.io.Writer w = new java.io.OutputStreamWriter(
-                    new java.io.FileOutputStream("src/test/resources/golden/" + name), "UTF-8")) {
-                w.write(pretty(body));
-            }
-            return;
-        }
-        // Key order is part of the snapshot: the envelope is written in a fixed order.
-        assertEquals(name + " drifted", golden(name).toString(2), new JSONObject(body).toString(2));
-    }
-
-    @Test public void postsGzippedContractFourEnvelopeMatchingGolden() throws Exception {
+    @Test public void postsGzippedContractFourEnvelopeAsGolden() throws Exception {
         sealedBatch();
         server.enqueue(new MockResponse().setResponseCode(202));
         sender.drain();
@@ -155,18 +116,18 @@ public class SenderTest {
         assertEquals("gzip", req.getHeader("Content-Encoding"));
         assertEquals("application/json", req.getHeader("Content-Type"));
         assertEquals("edge_key_secret", req.getHeader("X-API-Key"));
-        assertGolden("batch.json", gunzip(req));
+        dumpGolden("batch.json", gunzip(req));
         assertTrue(outbox.sealed().isEmpty());
     }
 
-    @Test public void appendsSdkHealthWithDropCountsMatchingGolden() throws Exception {
+    @Test public void appendsSdkHealthWithDropCountsAsGolden() throws Exception {
         health.count("outbox_full", 7);
         health.count("rejected", 2);
         sealedBatch();
         server.enqueue(new MockResponse().setResponseCode(200));
         sender.drain();
 
-        assertGolden("sdk-health.json", gunzip(server.takeRequest()));
+        dumpGolden("sdk-health.json", gunzip(server.takeRequest()));
         assertEquals(Collections.emptyMap(), health.snapshot());
     }
 

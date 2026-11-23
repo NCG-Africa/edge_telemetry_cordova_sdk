@@ -84,10 +84,10 @@ describe('JS errors (E9–E11)', () => {
     window.dispatchEvent(new ErrorEvent('error', { error, message: 'Uncaught TypeError: boom' }));
     expect(t.crashes()[0].attributes).toMatchObject({
       'error.message': 'boom', 'error.type': 'TypeError', 'error.stacktrace': 'TypeError: boom\n    at f (app:///js/app.js:10:5)',
-      'error.cause': 'unhandled_exception', 'error.runtime': 'webview',
+      'error.cause': 'unhandled_exception', 'runtime': 'webview',
     });
     expect(t.crashes()[0].eventName).toBe('app.crash');
-    for (const old of ['message', 'exception_type', 'stacktrace', 'handled', 'is_fatal', 'runtime', 'crash.breadcrumbs']) {
+    for (const old of ['message', 'exception_type', 'stacktrace', 'handled', 'is_fatal', 'error.runtime', 'crash.breadcrumbs']) {
       expect(t.crashes()[0].attributes).not.toHaveProperty(old);
     }
     expect(t.crashes()[0].attributes['error.breadcrumbs']).toBe('[]');
@@ -122,7 +122,7 @@ describe('JS errors (E9–E11)', () => {
     error.stack = 'Error: caught\n    at ionic://localhost/main.js:1:2';
     t.api.captureError(error);
     expect(t.crashes()[0]).toMatchObject({ eventName: 'app.error', attributes: {
-      'error.cause': 'handled', 'error.release': 'web@1', 'error.stacktrace': 'Error: caught\n    at app:///main.js:1:2',
+      'error.cause': 'handled', 'release': 'web@1', 'error.stacktrace': 'Error: caught\n    at app:///main.js:1:2',
     } });
   });
 

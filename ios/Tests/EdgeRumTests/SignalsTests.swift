@@ -45,8 +45,8 @@ final class SignalsTests: XCTestCase {
         e?["attributes"] as? [String: Any] ?? [:]
     }
 
-    /// The lines as one sent batch (`solo`: their own segment, as a crash), compared parsed.
-    static func assertGolden(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
+    /// The lines as one sent batch (`solo`: their own segment, as a crash), dumped as a golden batch.
+    static func dumpGoldenBatch(_ name: String, _ dir: URL, _ health: Health, _ lines: [String], solo: Bool = false,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         StubProtocol.reset()
         let sendAt: Int64 = 1_793_008_803_000 // 10:00:03.000Z
@@ -63,8 +63,7 @@ final class SignalsTests: XCTestCase {
         StubProtocol.replies = [.status(200)]
         sender.drain()
         let body = try XCTUnwrap(StubProtocol.requests.first.map { gunzip($0.body) }, file: file, line: line)
-        recordGolden(name, body)
-        XCTAssertEqual(json(body) as NSDictionary, json(golden(name)) as NSDictionary, file: file, line: line)
+        dumpGolden(name, body)
     }
 
     // MARK: - E22–E24, E26, E32
@@ -144,12 +143,12 @@ final class SignalsTests: XCTestCase {
     func testGoldenBatches() throws {
         let s = session()
         s.context = { Self.deviceContext }
-        try Self.assertGolden("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
+        try Self.dumpGoldenBatch("app-lifecycle.json", dir, health, s.admit([Signals.lifecycle("backgrounded", at: now)]))
         s.context = { [:] }
-        try Self.assertGolden("memory-usage.json", dir, health,
+        try Self.dumpGoldenBatch("memory-usage.json", dir, health,
                               s.admit([Signals.memory(footprint: 196_608_000, resident: 262_144_000, phase: "session_start", at: now)!]))
-        try Self.assertGolden("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
-        try Self.assertGolden("network-change.json", dir, health,
+        try Self.dumpGoldenBatch("memory-pressure.json", dir, health, s.admit([Signals.pressure(footprint: 196_608_000, at: now)]))
+        try Self.dumpGoldenBatch("network-change.json", dir, health,
                               s.admit([Signals.network(previous: "wifi", current: "none", at: now)]))
     }
 
@@ -196,7 +195,7 @@ final class SignalsTests: XCTestCase {
         let crash = Crash(dir: dir, clock: { [unowned self] in now })
         crash.mirror(CrashTests.payload(1, "/checkout"))
         let e = crash.webViewTerminated(detectedBy: "callback")
-        try Self.assertGolden("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
+        try Self.dumpGoldenBatch("app-crash-webview.json", dir, health, s.admit([e]), solo: true)
         let inferred = attrs(crash.webViewTerminated(detectedBy: "inference"))
         XCTAssertEqual(inferred["webview.detected_by"] as? String, "inference")
         XCTAssertEqual(inferred["error.cause"] as? String, "webview_terminated")

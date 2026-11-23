@@ -45,7 +45,7 @@ final class SenderTests: XCTestCase {
         gunzip(StubProtocol.requests[i].body)
     }
 
-    func testPostsGzippedContractFourEnvelopeMatchingGolden() throws {
+    func testPostsGzippedContractFourEnvelopeAsGolden() throws {
         try sealedBatch()
         StubProtocol.replies = [.status(202)]
         sender.drain()
@@ -56,18 +56,18 @@ final class SenderTests: XCTestCase {
         XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
         XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(req.value(forHTTPHeaderField: "X-API-Key"), "edge_key_secret")
-        XCTAssertEqual(body(0), golden("batch.json"))
+        dumpGolden("batch.json", body(0))
         XCTAssertTrue(outbox.sealed().isEmpty)
     }
 
-    func testAppendsSdkHealthWithDropCountsMatchingGolden() throws {
+    func testAppendsSdkHealthWithDropCountsAsGolden() throws {
         health.count("outbox_full", 7)
         health.count("rejected", 2)
         try sealedBatch()
         StubProtocol.replies = [.status(200)]
         sender.drain()
 
-        XCTAssertEqual(body(0), golden("sdk-health.json"))
+        dumpGolden("sdk-health.json", body(0))
         XCTAssertEqual(health.snapshot(), [:])
     }
 

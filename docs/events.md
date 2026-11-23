@@ -35,7 +35,7 @@ Every event the plugin sends, by wire name. **JS** = captured in the WebView, **
 | `screen.duration` | JS | on | On leaving a screen: `screen.name`, `screen.duration_ms`. |
 | `http.request` | JS | on | `fetch` and XHR: `http.url` (scrubbed, see [privacy](privacy.md)), `http.method`, `http.status_code`, `http.duration_ms`, `http.success`. The plugin's own requests and `ignoreUrls` are skipped. Native HTTP clients are not captured. |
 | `traceparent` header | JS | off | Added only to requests to `correlateRequestsTo` hosts. |
-| `resource_timing` | JS | off | `captureResourceTiming: true`. |
+| `perf.resource_timing` | JS | off | `captureResourceTiming: true`: `resource.host`, `resource.initiator_type`. |
 | `ui.interaction` | JS | on | Taps / clicks: `ui.type`, `ui.target`, `ui.name_source`, `ui.screen`, `ui.x`, `ui.y`. `ui.rage=true` for ≥ 3 taps on one target within 1 s; `ui.dead=true` when nothing happened within 1 s. |
 
 ## Performance

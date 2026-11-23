@@ -100,8 +100,8 @@ public class LaunchTest {
         Launch.timedOut(store, 10_000, T0 - 50_000);
         // S2: both exempt, so they survive a sampled-out session.
         List<String> lines = new ArrayList<>(session.admit(Arrays.asList(launch.mark("markReady", T0 + 1500))));
-        SenderTest.assertGoldenBatch("app-start.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("app-start.json", dir, health, now, lines);
         lines = session.admit(Arrays.asList(Launch.takeTimeout(store)));
-        SenderTest.assertGoldenBatch("cordova-deviceready-timeout.json", dir, health, now, lines);
+        SenderTest.dumpGoldenBatch("cordova-deviceready-timeout.json", dir, health, now, lines);
     }
 }
