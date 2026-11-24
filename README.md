@@ -182,3 +182,13 @@ angular.module('app').run(['$transitions', function ($transitions) {
   });
 }]);
 ```
+
+## Releasing
+
+Published to npm as [`@nathanclaire/rum-cordova`](https://www.npmjs.com/package/@nathanclaire/rum-cordova) by `.github/workflows/release.yml`. No `NPM_TOKEN`: it uses npm trusted publishing, so the package's Trusted Publisher entry on npmjs.com must name `NCG-Africa/edge_telemetry_cordova_sdk`, workflow `release.yml`, with the **publish** permission.
+
+1. Tick every box in [`docs/release-checklist.md`](docs/release-checklist.md).
+2. Release PR: `npm version X.Y.Z --no-git-tag-version` (bumps `package.json`; the `version` script copies it into `plugin.xml`), rename `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z`. Merge to `main`.
+3. Tag the merge commit on `main` and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The workflow checks the tag equals `package.json` and is on `main`, re-runs CI, publishes, then creates the GitHub Release from the `CHANGELOG.md` section. `vX.Y.Z-rc.N` goes to the `next` dist-tag.
