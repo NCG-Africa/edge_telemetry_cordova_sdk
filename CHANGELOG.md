@@ -2,13 +2,6 @@
 
 All notable changes to `@nathanclaire/rum-cordova` are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
-
-### Changed
-
-- Wire keys follow catalogue 4.8 (#61): JS errors send `runtime` and `release` (were `error.runtime`, `error.release`); `perf.resource_timing` sends `resource.host` (was the scrubbed `resource.url`).
-- Goldens (spec 2026-11-23 stable goldens, #61): tests dump raw batches to the gitignored `test/golden-raw/`; `scripts/conform.sh` checks them against the catalogue pinned in `catalogue.version` and the committed `test/shape-{js,android,ios}.txt`. The committed golden JSON and `UPDATE_GOLDEN` are gone.
-
 ## 1.0.0
 
 First release. Real User Monitoring for Cordova apps on Android (cordova-android ≥ 15) and iOS (cordova-ios ≥ 8).
@@ -17,6 +10,7 @@ First release. Real User Monitoring for Cordova apps on Android (cordova-android
 
 ### Added
 
+- Events follow catalogue 4.8 (`catalogue.version`); `scripts/conform.sh` checks the wire against it.
 - **Install-and-go**: `cordova plugin add @nathanclaire/rum-cordova --variable EDGE_RUM_API_KEY=… --variable EDGE_RUM_ENDPOINT=…`. Capture starts on launch; `init()` is optional.
 - **Errors and crashes**: JS uncaught errors and rejections with `app:///` frames and breadcrumbs; `captureError()`; native crashes (Android JVM + NDK, iOS signals / Mach), sent on next launch; WebView content-process deaths; Android ANRs, hangs on both platforms, Android exit reasons; `deviceready` timeouts.
 - **Launch time**: one `app.start` per cold launch with native and WebView phases, ended by `markReady()` if called.
