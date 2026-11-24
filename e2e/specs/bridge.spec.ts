@@ -42,7 +42,7 @@ test('A2 action names and args', async ({ page }) => {
     { action: 'identify', args: [{ id: 'u1', email: 'a@b.c' }] },
     { action: 'markPhase', args: [{ phase: 'markReady', ts: expect.any(Number) }] },
     { action: 'markPhase', args: [{ phase: 'deviceready', ts: expect.any(Number) }] },
-    { action: 'enqueue', args: [{ events: [expect.objectContaining({ eventName: 'custom_event' })], breadcrumbs: [] }] },
+    { action: 'enqueue', args: [{ events: [expect.objectContaining({ eventName: 'custom.event' })], breadcrumbs: [] }] },
     { action: 'clearUser', args: [] },
     { action: 'disable', args: [] },
     { action: 'enable', args: [] },
@@ -59,7 +59,7 @@ test('a custom event reaches mock-ingest', async ({ page, request }) => {
   });
   const custom = async () => {
     const { payloads } = (await (await request.get(`${INGEST}/__payloads`)).json()) as { payloads: Batch[] };
-    return payloads.flatMap((p) => p.events).find((e) => e.eventName === 'custom_event');
+    return payloads.flatMap((p) => p.events).find((e) => e.eventName === 'custom.event');
   };
   // T1: the 2 s hand-off timer, then the fake sender's POST.
   await expect.poll(custom, { timeout: 10_000 }).toMatchObject({
@@ -81,10 +81,10 @@ test('a thrown error reaches mock-ingest as a fatal app.crash with breadcrumbs',
   };
   // T1: a crash is handed off at once, no 2 s wait.
   await expect.poll(crash, { timeout: 5_000 }).toMatchObject({
-    attributes: { message: 'harness boom', exception_type: 'TypeError', handled: false, is_fatal: true, runtime: 'webview' },
+    attributes: { 'error.message': 'harness boom', 'error.type': 'TypeError', 'error.cause': 'unhandled_exception', runtime: 'webview' },
   });
   const attrs = (await crash())?.attributes ?? {};
-  expect(JSON.parse(attrs['crash.breadcrumbs'] as string)).toContainEqual(expect.objectContaining({ category: 'console', message: 'before the throw' }));
+  expect(JSON.parse(attrs['error.breadcrumbs'] as string)).toContainEqual(expect.objectContaining({ category: 'console', message: 'before the throw' }));
 });
 
 test('a plugin call reaches mock-ingest as bridge.summary, and a slow one as bridge.call', async ({ page, request }) => {
