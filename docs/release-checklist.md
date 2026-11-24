@@ -10,6 +10,14 @@ Spec 2026-11-23 stable goldens (AC-7). The pin moves only here, never in a featu
 - [ ] `catalogue.version` names that `catalogue-v4.N` tag, not `main` or a branch.
 - [ ] `scripts/conform.sh` on this commit prints `conforms to catalogue 4.N` and `shape matches` for all three sets (needs node, gradle with JDK 17+, xcodebuild, `go` and read access to the processor repo; `PROCESSOR_DIR=<checkout>` reuses a local one). An intended wire change: `scripts/conform.sh -update`, and commit the shape diff with the change.
 
+## Local tests
+
+Not in CI (saves Actions minutes); run on the release commit:
+
+- [ ] `npm run test:e2e` (browser harness)
+- [ ] `gradle -p android test` (JDK 17+)
+- [ ] `xcodebuild test -scheme @nathanclaire/rum-cordova -destination 'platform=macOS,arch=arm64'` (iOS core)
+
 ## Setup
 
 0. With an Android emulator and an iOS simulator booted, run the device e2e gate on both: `npm run e2e:device -- android` and `npm run e2e:device -- ios`. Both must print `[gate] <platform> OK`.

@@ -1,7 +1,7 @@
 name: CI
-# Runs only from release.yml on a v* tag, before publishing. Run it locally on PRs
-# (npm test, npm run test:e2e, gradle -p android test, xcodebuild test); fixture builds and
-# device e2e are local only (scripts/fixture-build.sh, npm run e2e:device).
+# Runs only from release.yml on a v* tag, before publishing. JS checks only, to save Actions
+# minutes: browser e2e, Android/iOS unit tests, fixture builds and device e2e run locally
+# (see docs/release-checklist.md).
 on:
   workflow_call:
   workflow_dispatch:
@@ -27,23 +27,3 @@ jobs:
       - run: npm run check:typings
       - run: npm run check:terms
       - run: npm run pack-audit
-      # Spec Q2: browser harness against the fake native + mock-ingest.
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
-
-  android-unit:
-    # Spec Q3: JUnit + MockWebServer over the plain-Java native core.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.8.2'
-      - run: gradle -p android test
-
-  # iOS unit tests run locally before tagging (no hosted macOS runners):
-  #   xcodebuild test -scheme @nathanclaire/rum-cordova -destination 'platform=macOS,arch=arm64'
