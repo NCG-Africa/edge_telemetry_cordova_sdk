@@ -68,7 +68,7 @@ export function track(name: string, attrs?: Attributes): void {
   if (typeof name === 'string' && name) event('custom.event', { ...attrs, 'event.name': name });
 }
 
-/** Record a host-named numeric value, e.g. `measure('cart.items', 3)` (`custom.metric`, your name in `metric.name`). */
+/** Record a host-named numeric value, e.g. `measure('cart.items', 3)`. */
 export function measure(name: string, value: number, attrs?: Attributes): void {
   metric(name, value, attrs);
 }
@@ -78,7 +78,7 @@ function metric(name: string, value: number, attrs?: Attributes, unit?: string) 
   record({ type: 'metric', metricName: 'custom.metric', value, timestamp: now(), attributes: { ...attrs, 'metric.name': name, ...(unit && { 'metric.unit': unit }) } });
 }
 
-/** Start a timer; `end()` records the elapsed milliseconds as a `custom.metric` (`metric.unit: ms`). */
+/** Start a timer; `end()` records the elapsed milliseconds as a measure. */
 export function time(name: string): Timer {
   const start = performance.now();
   let ended = false;
